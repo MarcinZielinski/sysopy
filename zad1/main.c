@@ -10,7 +10,7 @@
 
 void generate(FILE **file1, size_t size, size_t nmemb) { // size - size of records, nmemb - number of records
     if((*file1) == NULL) {
-        puts("Plik niezainicjalizowany poprawnie");
+        puts("File not opened propetly to generate data into");
         exit(EXIT_FAILURE);
     }
 
@@ -20,22 +20,20 @@ void generate(FILE **file1, size_t size, size_t nmemb) { // size - size of recor
         exit(EXIT_FAILURE);
     }
 
-    void *ptr = malloc(size*nmemb); // points to the place where data will be stored; size*nmemb, because we need the number of records*size of records memory cells
+    void *ptr = malloc(size); // points to the place where data will be stored; size, because we need the size-of-records-wide memory cells
 
-    size_t readRandomRecordsNumber = fread(ptr, size, nmemb, file2);
-    if(readRandomRecordsNumber != nmemb) {
-        puts("Couldn't read the data from /dev/random file");
-        exit(EXIT_FAILURE);
+    for(int i=0;i<nmemb;++i) {
+        size_t readRandomRecordsNumber = fread(ptr, size, 1, file2);
+        if(readRandomRecordsNumber != 1) {
+            puts("Couldn't read the data from /dev/random file");
+            exit(EXIT_FAILURE);
+        }
+        size_t savedRecordsNumber = fwrite(ptr,size,1,*file1); //fwrite returns the number of records created
+        if(savedRecordsNumber != 1) {
+            puts("Couldn't generate data to file");
+            exit(EXIT_FAILURE);
+        }
     }
-
-
-
-    size_t savedRecordsNumber = fwrite(ptr,size,nmemb,*file1); //fwrite returns the number of records created
-    if(savedRecordsNumber != nmemb) {
-        puts("Bład przy zapisie (generowaniu danych)");
-        exit(EXIT_FAILURE);
-    }
-
     free(ptr);
 }
 
@@ -270,7 +268,7 @@ int stoi(char *s) {
 
 int main(int argc, char **argv) {
     if(argc == 5 && strcmp(argv[1],"generate") == 0) {
-        FILE *file1 = fopen(argv[2],"w+");
+        FILE *file1 = fopen(argv[2],"rw+");
         if(file1 == NULL) {
             puts("Couldn't create/open file to generate");
             exit(EXIT_FAILURE);
