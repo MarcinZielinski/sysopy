@@ -257,9 +257,15 @@ void printTimes(char* title, struct timeStruct *prevTime, struct timeStruct *aft
     printf("%lf \t %lf \t %lf\n",real,user,system);
 }
 
-void printAverage(char* title, double realSum, double userSum, double systemSum) {
-    printf("\n%s \nReal: \t\t User: \t\t System:\n", title);
-    printf("%lf \t %lf \t %lf\n",realSum,userSum,systemSum);
+int stoi(char *s) {
+    int res = 0;
+    int n;
+    for(n=0;s[n]!='\0';++n);
+    for(int i=n-1,multiplier=1;i>=0;--i) {
+        res += (s[i]-48)*multiplier;
+        multiplier*=10;
+    }
+    return res;
 }
 
 int main(int argc, char **argv) {
@@ -269,8 +275,9 @@ int main(int argc, char **argv) {
             puts("Couldn't create/open file to generate");
             exit(EXIT_FAILURE);
         }
-        generate(&file1,(size_t)(((int)*argv[3])-48),(size_t)(((int)*argv[4]) - 48));
+        generate(&file1,(size_t)(stoi(argv[4])),(size_t)(stoi(argv[3])));
         puts("Generated file with random data");
+        fclose(file1);
         exit(EXIT_SUCCESS);
     }
 
@@ -281,11 +288,11 @@ int main(int argc, char **argv) {
     char* type = argv[1];
     char* operation = argv[2];
     char* filePath = argv[3];
-    char* recordSize = argv[4];
-    char* recordNumber = argv[5];
+    char* recordSize = argv[5];
+    char* recordNumber = argv[4];
 
-    int _size = (int) *recordSize -48;
-    int _nmemb = (int) *recordNumber -48;
+    int _size = stoi(recordSize);
+    int _nmemb = stoi(recordNumber);
 
     size_t size = (size_t) _size;
     size_t nmemb = (size_t) _nmemb;
@@ -314,7 +321,7 @@ int main(int argc, char **argv) {
         }
         close(fd);
     } else if (strcmp(type,"lib") == 0) {
-        FILE *file1 = fopen(filePath, "w+"); // w+ - read and write + create/wipe out the file
+        FILE *file1 = fopen(filePath, "rw+"); // w+ - read and write + create/wipe out the file
         if(file1 == NULL) {
             puts("Couldn't open file in lib mode");
             exit(EXIT_FAILURE);
