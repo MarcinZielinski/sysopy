@@ -2,13 +2,13 @@
 // Created by Mrz355 on 19.03.17.
 //
 
-#define _XOPEN_SOURCE 500
 #include <ftw.h>
 #include <string.h>
 #include <stdio.h>
 #include <dirent.h>
 #include <stdlib.h>
 #include <time.h>
+#include <limits.h>
 
 
 char* getPriviliages(__mode_t priviliages, int isFile) {
@@ -63,15 +63,12 @@ char *getDate(__time_t timespec) {
     return res;
 }
 
-void sysSearch(char* dirPath, int bytes, int tabsNumber) {
+void sysSearch(char* dirPath, int bytes) {
     DIR* dir1 = opendir(dirPath);
     if(dir1 == NULL) {
-        printf("Couldn't open directory sys");
+        printf("Couldn't open directory %s",dirPath);
         exit(EXIT_FAILURE);
     }
-
-    char* tabs = malloc(sizeof(char)*tabsNumber);
-    for(int i=0;i<tabsNumber;++i) tabs[i]='\t';
 
     struct dirent* next;
 
@@ -96,13 +93,13 @@ void sysSearch(char* dirPath, int bytes, int tabsNumber) {
                 __mode_t priviliages = ((statistics->st_mode) & 07777);
                 char* prettyPrivil = getPriviliages(priviliages,1);
                 char* date = getDate(statistics->st_mtime);
-                printf("%sPath: %s\n",tabs,absPath);
-                printf("%s%s %d bytes, %s\n",tabs,prettyPrivil,fileSize,date);
+                printf("Path: %s\n",absPath);
+                printf("%s %d bytes, %s\n",prettyPrivil,fileSize,date);
             }
         }
 
         if(res>=0 && ((statistics->st_mode) & S_IFMT)==S_IFDIR && ((statistics->st_mode) & S_IFMT)!=S_IFLNK) { // if found dir, not a symbolic link, go into
-            sysSearch(absPath,bytes,tabsNumber+1);
+            sysSearch(absPath,bytes);
         }
 
         free(statistics);
@@ -110,37 +107,27 @@ void sysSearch(char* dirPath, int bytes, int tabsNumber) {
 
     closedir(dir1);
 }
-
-int bytes_limit;
-
-int fn(const char *fpath, const struct stat *sb, int tflag, struct FTW *ftwbuf) {
-    if(tflag == FTW_F) { // we have file
-        int fileSize = (int) sb->st_size;
-        if(fileSize <= bytes_limit) {
-            printf("Path: %s\n",fpath);
-            __mode_t priviliages = ((sb->st_mode) & 07777);
-            char* prettyPrivil = getPriviliages(priviliages,1);
-            char* date = getDate(sb->st_mtime);
-            printf("%s %d bytes, %s\n",prettyPrivil,fileSize,date);
-        }
+int stoi(char *s) {
+    int res = 0;
+    int n;
+    for(n=0;s[n]!='\0';++n);
+    for(int i=n-1,multiplier=1;i>=0;--i) {
+        res += (s[i]-48)*multiplier;
+        multiplier*=10;
     }
-
-    return 0;
+    return res;
 }
-
-void nftwSearch(char* dirPath) {
-    int result = nftw(dirPath,fn,50,FTW_PHYS);
-    if (result != 0) {
-        printf("Nftw non successful");
+int main(int argc, char** argv) {
+    if(argc != 3) {
+        printf("Wrong number of parameters. (eg. ./program ./documents/dir 5000)");
         exit(EXIT_FAILURE);
     }
-}
 
-int main() {
-    char* dirPath = "../zad1";
-    int bytes = 5000;
-    bytes_limit = bytes;
-    nftwSearch("/home/Mrz355/CLionProjects/ZielinskiMarcin/cw02/zad1");
+    char* absPath = malloc(PATH_MAX);
+    realpath(argv[1],absPath);
+
+    int bytes = stoi(argv[2]);
+    sysSearch(absPath,bytes);
 
     return 0;
 }
