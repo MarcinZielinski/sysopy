@@ -14,15 +14,15 @@ void generate(FILE **file1, size_t size, size_t nmemb) { // size - size of recor
         exit(EXIT_FAILURE);
     }
 
-    FILE *file = fopen("/dev/random","r");
-    if(file == NULL) {
+    FILE *file2 = fopen("/dev/random","r");
+    if(file2 == NULL) {
         puts("Couldn't open /dev/random file");
         exit(EXIT_FAILURE);
     }
 
     void *ptr = malloc(size*nmemb); // points to the place where data will be stored; size*nmemb, because we need the number of records*size of records memory cells
 
-    size_t readRandomRecordsNumber = fread(ptr, size, nmemb, file);
+    size_t readRandomRecordsNumber = fread(ptr, size, nmemb, file2);
     if(readRandomRecordsNumber != nmemb) {
         puts("Couldn't read the data from /dev/random file");
         exit(EXIT_FAILURE);
@@ -73,7 +73,7 @@ void shufflesys(int fd, size_t size, size_t nmemb) {
 
     int n = (int) nmemb;
     for(int i=n-1;i>=1;--i) {
-        off_t place = lseek(fd,i*size,SEEK_SET);
+        lseek(fd,i*size,SEEK_SET);
         ssize_t bytesRead = read(fd,ptr,size);
         if(bytesRead != size) {
             puts("Failed to read data in shufflesys (i)");
@@ -82,20 +82,20 @@ void shufflesys(int fd, size_t size, size_t nmemb) {
 
         int j = rand()%(i+1); // 0 <= j <= i
 
-        place = lseek(fd,j*size,SEEK_SET);
+        lseek(fd,j*size,SEEK_SET);
         bytesRead = read(fd,qtr,size);
         if(bytesRead != size) {
             puts("Failed to read data in shufflesys (j)");
             exit(EXIT_FAILURE);
         }
 
-        place = lseek(fd,j*size,SEEK_SET);
+        lseek(fd,j*size,SEEK_SET);
         ssize_t bytesWrite = write(fd,ptr,size);
         if(bytesWrite != size) {
             puts("Failed to save data in shufflesys (i)");
             exit(EXIT_FAILURE);
         }
-        place = lseek(fd,i*size,SEEK_SET);
+        lseek(fd,i*size,SEEK_SET);
         bytesWrite = write(fd,qtr,size);
         if(bytesWrite != size) {
             puts("Failed to save data in shufflesys (i)");
@@ -263,27 +263,26 @@ void printAverage(char* title, double realSum, double userSum, double systemSum)
 }
 
 int main(int argc, char **argv) {
-    if(argc == 5 && strcmp(argv[1],"generate")) {
-
+    if(argc == 5 && strcmp(argv[1],"generate") == 0) {
+        FILE *file1 = fopen(argv[2],"w+");
+        if(file1 == NULL) {
+            puts("Couldn't create/open file to generate");
+            exit(EXIT_FAILURE);
+        }
+        generate(&file1,(size_t)(((int)*argv[3])-48),(size_t)(((int)*argv[4]) - 48));
+        puts("Generated file with random data");
+        exit(EXIT_SUCCESS);
     }
-    else if(argc !=1) {
+
+    if(argc != 5 && argc !=6) {
         puts("Wrong number of parameters");
         exit(EXIT_FAILURE);
     }
-
-
-
-//    char* arg1 = "../zad1/tab.txt";
-//    char* arg2 = "4"; // constant size (wielkosc) of records (size)
-//    char* arg3 = "5"; // number of records (nmemb)
-
     char* type = argv[1];
     char* operation = argv[2];
     char* filePath = argv[3];
     char* recordSize = argv[4];
     char* recordNumber = argv[5];
-
-    //FILE *file1 = fopen(filePath, "w+"); // W+ - read and write + create/wipe out the file
 
     int _size = (int) *recordSize -48;
     int _nmemb = (int) *recordNumber -48;
@@ -301,52 +300,39 @@ int main(int argc, char **argv) {
             exit(EXIT_FAILURE);
         }
         if(strcmp(operation,"shuffle")==0) {
+            loadTimes(&prevTime);
             shufflesys(fd,size,nmemb);
+            loadTimes(&afterTime);
+            printTimes("Sys functions shuffle time:",prevTime,afterTime);
         } else if (strcmp(operation, "sort") == 0) {
+            loadTimes(&prevTime);
             sortsys(fd,size,nmemb);
+            loadTimes(&afterTime);
+            printTimes("Sys functions sort time:",prevTime,afterTime);
         } else {
             puts("Wrong parameters. (eg. ./program sys shuffle datafile 100 512");
         }
         close(fd);
     } else if (strcmp(type,"lib") == 0) {
-        FILE *file1 = fopen(filePath, "w+");
+        FILE *file1 = fopen(filePath, "w+"); // w+ - read and write + create/wipe out the file
         if(file1 == NULL) {
             puts("Couldn't open file in lib mode");
             exit(EXIT_FAILURE);
         }
         if(strcmp(operation,"shuffle")==0) {
+            loadTimes(&prevTime);
             shufflelib(&file1,size,nmemb);
+            loadTimes(&afterTime);
+            printTimes("Lib functions shuffle time:",prevTime,afterTime);
         } else if(strcmp(operation,"sort") == 0) {
+            loadTimes(&prevTime);
             sortlib(&file1,size,nmemb);
+            loadTimes(&afterTime);
+            printTimes("Lib functions sort time:",prevTime,afterTime);
         } else {
             puts("Wrong parameters. (eg. ./program sys shuffle datafile 100 512");
         }
         fclose(file1);
     }
-
-
-//    generate(&file1, size, nmemb);
-//
-//    printFile(file1,size, nmemb);
-//
-//    //sortlib(&file1,size,nmemb);
-//
-//    shufflelib(&file1,size,nmemb);
-//
-//    //printFile(file1,size, nmemb);
-//
-//    //int fd = open(arg1,O_RDWR|O_CREAT|O_TRUNC);
-//
-////    fseek(file1,0,SEEK_SET);
-//    //int fd = fileno(file1);
-//    //sortsys(fd,size,nmemb);
-//    //shufflesys(fd,size,nmemb);
-//
-//
-////    file1 = fdopen(fd,"w+");
-//    printFile(file1,size,nmemb);
-//    fclose(file1);
-
-
     return 0;
 }
