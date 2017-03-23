@@ -8,12 +8,10 @@
 #include <wait.h>
 
 
-extern char ** environ;
+extern char ** environ; // array of all the environment variables
+char * PATH;    // $PATH variable
+char * currentPath; // path to the file we currently process
 
-char * PATH;
-
-
-char * currentPath;
 int fn(const char *fpath, const struct stat *sb, int tflag, struct FTW *ftwbuf) {
     if(tflag == FTW_F) { // we have file
         if(strcmp(fpath,currentPath)==0) {
@@ -37,26 +35,6 @@ char* nftwSearch(char* dirPath) {
     }
 }
 
-char ** splitArguments(char* str) {
-    int argumentsNumber = 1; // always one argument when executing a program
-    if(str!=NULL) {
-        while (str[0] == ' ') ++str;
-    }
-    size_t charSize = sizeof(char*);
-    char** res = malloc(charSize);
-
-    char* p = strtok(str," ");
-    while(p != NULL) {
-        ++argumentsNumber;
-        res = realloc(res,argumentsNumber*charSize);
-        res[argumentsNumber-1] = strdup(p);
-        p = strtok(NULL," ");
-    }
-    res = realloc(res,(argumentsNumber+1)*charSize);
-    res[argumentsNumber] = NULL;
-
-    return res;
-}
 char *searchFile(char *programName) {
     if(programName==NULL) return NULL;
 
@@ -92,25 +70,46 @@ char *searchFile(char *programName) {
 
     return NULL;
 }
-char **replaceArgumentsWithEnvironmentVariables(char **argv) {
-    if(argv[1] == NULL) return argv; // argv always end with NULL arg
-
-    int i = 1;
-    while(argv[i] != NULL) {
-        if(argv[i][0] == '$') { // out string coinains at least one character
-            if(argv[i][1] != '\0') { // if this isn't only $ we can change it to environment variable
-                char* tmp = argv[i];
-                ++tmp;
-
-                char* variable = getenv(tmp);
-                argv[i] = variable;
-            }
-        }
-        ++i;
+char ** splitArguments(char* str) {
+    int argumentsNumber = 1; // always one argument when executing a program
+    if(str!=NULL) {
+        while (str[0] == ' ') ++str;
     }
-    return argv;
-}
+    size_t charSize = sizeof(char*);
+    char** res = malloc(charSize);
+    char* env = NULL;
+    char* save1, *save2;
+    char* p = strtok_r(str," ",&save1);
+    while(p != NULL) {
 
+        if(p[0]=='$') {
+            env = strdup(p+1);
+            if ((env = getenv(env)) == NULL) {
+                p = strtok_r(NULL," ",&save1);
+
+            } else {
+                env = strtok_r(env, " ", &save2);
+                while (env != NULL) {
+                    ++argumentsNumber;
+                    res = realloc(res, argumentsNumber * charSize);
+                    res[argumentsNumber - 1] = strdup(env);
+                    env = strtok_r(NULL, " ", &save2);
+                }
+            }
+            p = strtok_r(NULL," ",&save1);
+            continue;
+        }
+
+        ++argumentsNumber;
+        res = realloc(res,argumentsNumber*charSize);
+        res[argumentsNumber-1] = strdup(p);
+        p = strtok_r(NULL," ",&save1);
+    }
+    res = realloc(res,(argumentsNumber+1)*charSize);
+    res[argumentsNumber] = NULL;
+
+    return res;
+}
 void parseLine(char *line) { // line > 1
     char *str;
 
@@ -127,12 +126,9 @@ void parseLine(char *line) { // line > 1
         char* variableName = str;
 
         if((str=strtok(NULL,"\n")) == NULL) {
-            unsetenv(variableName);
-            printf("\nUnsetting variable: %s",variableName);
+            unsetenv(variableName); // this function doesn't do anything to environment, when variable with given name doesn't exist
         } else {
             setenv(variableName,str,1); // non zero = override
-            printf("\nSetting variable: %s=%s",variableName,str);
-
             PATH = getenv("PATH");
         }
     } else {
@@ -144,7 +140,7 @@ void parseLine(char *line) { // line > 1
         if(programPath != NULL) {
             char **argv = splitArguments(str);
             argv[0] = programName;
-            argv = replaceArgumentsWithEnvironmentVariables(argv);
+
             pid_t child = fork();
             if(child == 0) {
                 execve(programPath, argv, environ);

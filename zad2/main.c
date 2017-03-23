@@ -13,12 +13,10 @@
 #include <sys/resource.h>
 #include <errno.h>
 
-extern char ** environ;
+extern char ** environ; // array of all the environment variables
+char * PATH;    // $PATH variable
+char * currentPath; // path to the file we currently process
 
-char * PATH;
-
-
-char * currentPath;
 int fn(const char *fpath, const struct stat *sb, int tflag, struct FTW *ftwbuf) {
     if(tflag == FTW_F) { // we have file
         if(strcmp(fpath,currentPath)==0) {
@@ -49,13 +47,33 @@ char ** splitArguments(char* str) {
     }
     size_t charSize = sizeof(char*);
     char** res = malloc(charSize);
-
-    char* p = strtok(str," ");
+    char* env = NULL;
+    char* save1, *save2;
+    char* p = strtok_r(str," ",&save1);
     while(p != NULL) {
+
+        if(p[0]=='$') {
+            env = strdup(p+1);
+            if ((env = getenv(env)) == NULL) {
+                p = strtok_r(NULL," ",&save1);
+
+            } else {
+                env = strtok_r(env, " ", &save2);
+                while (env != NULL) {
+                    ++argumentsNumber;
+                    res = realloc(res, argumentsNumber * charSize);
+                    res[argumentsNumber - 1] = strdup(env);
+                    env = strtok_r(NULL, " ", &save2);
+                }
+            }
+            p = strtok_r(NULL," ",&save1);
+            continue;
+        }
+
         ++argumentsNumber;
         res = realloc(res,argumentsNumber*charSize);
         res[argumentsNumber-1] = strdup(p);
-        p = strtok(NULL," ");
+        p = strtok_r(NULL," ",&save1);
     }
     res = realloc(res,(argumentsNumber+1)*charSize);
     res[argumentsNumber] = NULL;
@@ -75,7 +93,7 @@ char *searchFile(char *programName) {
                 return absPath;
             }
         }
-        printf(stderr,"Couldn't find file: %s",programName);
+        fprintf(stderr,"Couldn't find file: %s",programName);
         exit(EXIT_FAILURE);
     }
 
@@ -97,33 +115,15 @@ char *searchFile(char *programName) {
 
     return NULL;
 }
-char **replaceArgumentsWithEnvironmentVariables(char **argv) {
-    if(argv[1] == NULL) return argv; // argv always end with NULL arg
-
-    int i = 1;
-    while(argv[i] != NULL) {
-        if(argv[i][0] == '$') { // out string coinains at least one character
-            if(argv[i][1] != '\0') { // if this isn't only $ we can change it to environment variable
-                char* tmp = argv[i];
-                ++tmp;
-
-                char* variable = getenv(tmp);
-                argv[i] = variable;
-            }
-        }
-        ++i;
-    }
-    return argv;
-}
 
 void displayChildUsage(pid_t pid,char* programName) {
-    struct rusage* usage = NULL;
+    struct rusage* usage = malloc(sizeof(struct rusage));
     if(getrusage(RUSAGE_CHILDREN,usage) == 0) {
         printf("\nProces PID: %d, program: %s",pid,programName);
-        printf("\nSystem time usage: %zu", usage->ru_stime.tv_sec);
-        printf("\nUser time usage: %zu\n", usage->ru_utime.tv_sec);
+        printf("\nSystem time usage: %zu ms", usage->ru_stime.tv_usec);
+        printf("\nUser time usage: %zu ms\n", usage->ru_utime.tv_usec);
     } else {
-        perror("Couldn't get the usage of child process.");
+        perror("Couldn't get the usage of child process");
     }
 }
 
@@ -144,12 +144,10 @@ void parseLine(char *line, rlim_t virtual_limit, rlim_t cpu_limit) { // line > 1
 
         if((str=strtok(NULL,"\n")) == NULL) {
             unsetenv(variableName);
-            printf("\nUnsetting variable: %s",variableName);
         } else {
             setenv(variableName,str,1); // non zero = override
-            printf("\nSetting variable: %s=%s",variableName,str);
 
-            PATH = getenv("PATH");
+            PATH = getenv("PATH"); // path may changed, so we need to update it in our program
         }
     } else {
         char* programName = str;
@@ -160,33 +158,38 @@ void parseLine(char *line, rlim_t virtual_limit, rlim_t cpu_limit) { // line > 1
         if(programPath != NULL) {
             char **argv = splitArguments(str);
             argv[0] = programName;
-            argv = replaceArgumentsWithEnvironmentVariables(argv);
+
             pid_t child = fork();
             if(child == 0) {
                 int result1, result2;
-                struct rlimit *limit;
+                struct rlimit *limit = malloc(sizeof(struct rlimit));
                 limit->rlim_max = virtual_limit;
+                limit->rlim_cur = virtual_limit;
                 result1 = setrlimit(RLIMIT_AS,limit);
                 limit->rlim_max = cpu_limit;
+                limit->rlim_cur = cpu_limit;
                 result2 = setrlimit(RLIMIT_CPU,limit);
                 if(result1 != 0 || result2 != 0) {
                     perror("Cannot set given limits to the PC resources");
                     exit(EXIT_FAILURE);
                 }
                 free(limit);
-                execve(programPath, argv, environ);
+                if(execv(programPath, argv) == -1) {
+                    perror("\nProgram failed to execute");
+                    exit(EXIT_FAILURE);
+                }
             }
             int status;
             wait(&status);
             if(status != 0) {
-                printf(stderr,"\nProgram \"%s\" execution failed\n",programName);
+                fprintf(stderr,"\nProgram \"%s\" execution failed\n",programName);
                 exit(EXIT_FAILURE);
             }
 
             displayChildUsage(child,programName);
 
         } else {
-            printf(stderr,"\nCouldn't find program: %s",programName);
+            fprintf(stderr,"\nCouldn't find program: %s",programName);
             exit(EXIT_FAILURE);
         }
     }
@@ -212,13 +215,15 @@ long stol(char* str) {
 
 int main(int argc, char **argv) {
     if(argc!=4) {
-        printf(stderr,"Not a valid number of arguments! 3 required - Path to file to interpret, maximum virtual memory usage and maximum cpu time usage.\n");
+        fprintf(stderr,"Not a valid number of arguments! 3 required - Path to file to interpret, maximum virtual memory usage (MB) and maximum CPU time usage (seconds).\n");
         exit(EXIT_FAILURE);
     }
     char* dirPath = argv[1];
 
     long virtual_limit = stol(argv[2]);
     long cpu_limit = stol(argv[3]);
+
+    virtual_limit*=1e6; // user passed the value in MegaBytes
 
     FILE * file1;
     if((file1 = fopen(dirPath,"r")) == NULL) {
