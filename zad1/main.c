@@ -12,17 +12,7 @@ extern char ** environ;
 
 char * PATH;
 
-void searchPath() {
-    int i = 0;
-    while(environ[i]!=NULL) {
-        char * tmp = strstr(environ[i],"PATH=");
-        if(environ[i]==tmp) { // if the string begins with "PATH=..." then we've got it
-            tmp+=5;
-            PATH = tmp;
-        }
-        ++i;
-    }
-}
+
 char * currentPath;
 int fn(const char *fpath, const struct stat *sb, int tflag, struct FTW *ftwbuf) {
     if(tflag == FTW_F) { // we have file
@@ -47,20 +37,11 @@ char* nftwSearch(char* dirPath) {
     }
 }
 
-void skipSpaces(char** str) {
-    int i,x;
-    for(i=x=0; str[i]; ++i)
-        if(*str[i] != ' ' || (i>0 && *str[i-1]!=' '))
-            str[x++] = str[i];
-    str[x] = '\0';
-}
-
 char ** splitArguments(char* str) {
-    if(!str) return NULL;
-
-    int argumentsNumber = 1; // always one argument when executing a program (
-    while(str[0] == ' ') ++str;
-
+    int argumentsNumber = 1; // always one argument when executing a program
+    if(str!=NULL) {
+        while (str[0] == ' ') ++str;
+    }
     size_t charSize = sizeof(char*);
     char** res = malloc(charSize);
 
@@ -85,19 +66,19 @@ char *searchFile(char *programName) {
     if(programName[0] == '/' || programName[0]=='.') {
         char* absPath = malloc(PATH_MAX);
         realpath(programName,absPath); // programName is sth like ls for example
+        absPath = strtok(absPath,"\n");
         if(access(absPath, F_OK) != -1 ) {
             if (access(absPath, X_OK) != -1) {
                 return absPath;
             }
         }
         printf("Couldn't find file: %s",programName);
-        exit(EXIT_FAILURE); // TODO: Zrobic tutaj zeby potomek zwracal zly status czy cos
+        exit(EXIT_FAILURE);
     }
 
     // searching PATH variable
     char* str = strdup(PATH);
     char *p = strtok(str,":");
-    char *res = NULL;
     while(p) {
         currentPath = strdup(p);
         strcat(currentPath,"/");
@@ -113,8 +94,26 @@ char *searchFile(char *programName) {
 
     return NULL;
 }
+char **replaceArgumentsWithEnvironmentVariables(char **argv) {
+    if(argv[1] == NULL) return argv; // argv always end with NULL arg
 
-void parseLine(char *line, int read) {
+    int i = 1;
+    while(argv[i] != NULL) {
+        if(argv[i][0] == '$') { // out string coinains at least one character
+            if(argv[i][1] != '\0') { // if this isn't only $ we can change it to environment variable
+                char* tmp = argv[i];
+                ++tmp;
+
+                char* variable = getenv(tmp);
+                argv[i] = variable;
+            }
+        }
+        ++i;
+    }
+    return argv;
+}
+
+void parseLine(char *line) { // line > 1
     char *str;
 
     while(line[0]==' ') { // delete the spaces before command
@@ -138,30 +137,27 @@ void parseLine(char *line, int read) {
             setenv(variableName,str,1); // non zero = override
             printf("\nSetting variable: %s=%s",variableName,str);
 
-            searchPath();
+            PATH = getenv("PATH");
         }
     } else {
         char* programName = str;
 
         str = strtok(NULL,"\n");
 
-
-
-
-
-        //pid_t childPID = fork();
         char* programPath = searchFile(line);
         if(programPath != NULL) {
             char **argv = splitArguments(str);
             argv[0] = programName;
+            argv = replaceArgumentsWithEnvironmentVariables(argv);
             pid_t child = fork();
             if(child == 0) {
                 execve(programPath, argv, environ);
             }
-            int status = wait(&status);
+            int status;
+            wait(&status);
             if(status != 0) {
                 printf("\nProgram \"%s\" execution failed\n",programName);
-                //exit(EXIT_FAILURE);
+                exit(EXIT_FAILURE);
             }
         } else {
             printf("\nCouldn't find program: %s",programName);
@@ -171,11 +167,15 @@ void parseLine(char *line, int read) {
 }
 
 int main(int argc, char **argv) {
-    char* dirPath = "../zad1/andrzejek";
+    if(argc!=2) {
+        printf("Not a valid number of arguments! 1 required - Path to file to interpret.\n");
+        exit(EXIT_FAILURE);
+    }
+    char* dirPath = argv[1];
 
     FILE * file1;
     if((file1 = fopen(dirPath,"r")) == NULL) {
-        printf("Cannot open file %s",dirPath);
+        printf("\nCannot open file %s\n",dirPath);
         exit(EXIT_FAILURE);
     }
 
@@ -192,12 +192,9 @@ int main(int argc, char **argv) {
 
     while ((read = getline(&line, &len, file1)) != -1) {
         if(read > 1) {  // > 1, because of the endline character
-            parseLine(line, (int) read);
+            parseLine(line);
         }
     }
-
-    searchPath();
-    nftwSearch(dirPath);
 
     return 0;
 }
