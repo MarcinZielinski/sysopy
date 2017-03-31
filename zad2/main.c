@@ -10,6 +10,11 @@
 #include <time.h>
 #include <sys/resource.h>
 
+int N; // number of forked processes
+int K; // number of needed requests
+pid_t *PIDs; // array of processes that requested permission
+pid_t parent; // parent (main program) pid
+int permission = 0; // the permission to grant
 
 int stoi(char* str) {
     char *endptr;
@@ -29,11 +34,21 @@ int stoi(char* str) {
     return res;
 }
 
-int requests = 0;
-int K;
-pid_t *PIDs;
+void killAll(int signum) {
+    if(getpid() != parent) {
+        printf("\nSIGINT received, killing %d\n", getpid());
+        kill(getpid(), SIGKILL);
+    }
+    else {
+        printf("\nExiting program.\n");
+        sleep(1);
+        printf("\nEXIT\n");
+        exit(EXIT_SUCCESS);
+    }
+}
 
 void sigHandler(int signum, siginfo_t *value, void *extra) {
+    static int requests = 0;
     PIDs[requests++] = value->si_value.sival_int;
     printf("\nRequest: %d\n",requests);
     printf("Signal received: %d from %zu\n", signum, value->si_value);
@@ -45,9 +60,20 @@ void sigHandler(int signum, siginfo_t *value, void *extra) {
         }
     }
 }
-int permission = 0;
 void childHandler(int signum) {
     permission = 1;
+}
+
+void sigRealHandler(int signum, siginfo_t *value, void *extra) {
+    static int realReceived = 0;
+    ++realReceived;
+    printf("\nReal-time signal received: %d from %zu\n", signum, value->si_value);
+    if(realReceived == N) {
+        printf("\nAll processes finished job, exiting program\n");
+        sleep(1);
+        printf("\nEXIT\n");
+        exit(EXIT_SUCCESS);
+    }
 }
 
 int main(int argc, char **argv) {
@@ -55,7 +81,7 @@ int main(int argc, char **argv) {
         fprintf(stderr,"\nYou must specify two arguments. N - number of child processes and K - number of request needed.\n");
         exit(EXIT_FAILURE);
     }
-    int N = stoi(argv[1]); // number of children
+    N = stoi(argv[1]); // number of children
     K = stoi(argv[2]); // number of needed requests
 
     if(K > N) {
@@ -66,6 +92,7 @@ int main(int argc, char **argv) {
 
     PIDs = malloc(sizeof(sigval_t)*N); // store the PIDs of child which has requested the access to continue
 
+    //USR1 signal handle
     struct sigaction actionStruct;
     actionStruct.sa_flags = SA_SIGINFO;
     actionStruct.sa_sigaction = &sigHandler;
@@ -77,7 +104,19 @@ int main(int argc, char **argv) {
         perror("\nError with sigaction\n");
     }
 
-    pid_t parent = getpid();
+    //real-time signal handle
+    struct sigaction realActionStruct;
+    realActionStruct.sa_flags = SA_SIGINFO;
+    realActionStruct.sa_sigaction = &sigRealHandler;
+    sigemptyset(&realActionStruct.sa_mask);
+    for(int i = SIGRTMIN; i < SIGRTMIN + 32;++i) {
+        sigaction(i,&realActionStruct,NULL);
+    }
+
+    //interrupt signal handle
+    signal(SIGINT,killAll);
+
+    parent = getpid();
     pid_t child = 1;
     for(int i=0; i<N; ++i) {
         if((child = fork())==0) {
@@ -92,14 +131,18 @@ int main(int argc, char **argv) {
 
         union sigval *value = malloc(sizeof(union sigval));
 
-        signal(SIGALRM,childHandler);
+        signal(SIGALRM,childHandler); // listen for alarm
         value -> sival_int = getpid();
-        sigqueue(parent, SIGUSR1, *value);
-        //pause();
-        while(!permission);
-        //send realtimesignal
+        sigqueue(parent, SIGUSR1, *value); // send SIGUSR1 with own PID
+        while(!permission); // wait for permission
 
-        if(getrusage(RUSAGE_CHILDREN,usage) == 0) {
+        //send realtimesignal
+        int realTimeSignal = SIGRTMIN + (rand() % 32);
+        value -> sival_int = getpid();
+        sigqueue(parent,realTimeSignal, *value);
+
+        //display statistics
+        if(getrusage(RUSAGE_SELF,usage) == 0) {
             printf("\nChild process PID: %d has finished job. S: %lf s, U: %lf s\n",
                    getpid(), (double)usage->ru_stime.tv_sec + (double)(usage->ru_stime.tv_usec)/1e6,
                    (double)usage->ru_utime.tv_sec + (double)(usage->ru_utime.tv_usec)/1e6);
@@ -114,7 +157,5 @@ int main(int argc, char **argv) {
         exit(EXIT_SUCCESS);
     }
 
-    while(1) {}// wait for signals
-
-    return 0;
+    while(1) {} // wait for signals
 }
