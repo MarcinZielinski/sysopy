@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <time.h>
 #include <sys/resource.h>
+#include <string.h>
 
 int N; // number of forked processes
 int K; // number of needed requests
@@ -46,9 +47,8 @@ void killAll(int signum) {
         exit(EXIT_SUCCESS);
     }
 }
-
+volatile int requests = 0;
 void sigHandler(int signum, siginfo_t *value, void *extra) {
-    static int requests = 0;
     PIDs[requests++] = value->si_value.sival_int;
     printf("\nRequest: %d\n",requests);
     printf("Signal received: %d from %zu\n", signum, value->si_value);
@@ -59,21 +59,22 @@ void sigHandler(int signum, siginfo_t *value, void *extra) {
             kill(PIDs[i], SIGALRM);
         }
     }
+    return;
 }
 void childHandler(int signum) {
     permission = 1;
 }
-
+volatile sig_atomic_t realReceived = 0;
 void sigRealHandler(int signum, siginfo_t *value, void *extra) {
-    static int realReceived = 0;
     ++realReceived;
     printf("\nReal-time signal received: %d from %zu\n", signum, value->si_value);
-    if(realReceived == N) {
+    if(realReceived >= N) {
         printf("\nAll processes finished job, exiting program\n");
         sleep(1);
         printf("\nEXIT\n");
         exit(EXIT_SUCCESS);
     }
+    return;
 }
 
 int main(int argc, char **argv) {
@@ -88,15 +89,14 @@ int main(int argc, char **argv) {
         fprintf(stderr, "\nThe number of requests mustn't be greater than the processes number.\n");
         exit(EXIT_FAILURE);
     }
-
-
     PIDs = malloc(sizeof(sigval_t)*N); // store the PIDs of child which has requested the access to continue
 
     //USR1 signal handle
     struct sigaction actionStruct;
     actionStruct.sa_flags = SA_SIGINFO;
     actionStruct.sa_sigaction = &sigHandler;
-    sigemptyset(&actionStruct.sa_mask);
+    sigfillset(&actionStruct.sa_mask);
+    sigdelset(&actionStruct.sa_mask,SIGUSR1);
     if(sigaction(SIGUSR1, &actionStruct, NULL) == 0) {
         printf("Sigaction completed.\n");
     }
@@ -108,9 +108,11 @@ int main(int argc, char **argv) {
     struct sigaction realActionStruct;
     realActionStruct.sa_flags = SA_SIGINFO;
     realActionStruct.sa_sigaction = &sigRealHandler;
-    sigemptyset(&realActionStruct.sa_mask);
+    sigfillset(&realActionStruct.sa_mask);
     for(int i = SIGRTMIN; i < SIGRTMIN + 32;++i) {
+        sigdelset(&realActionStruct.sa_mask,i);
         sigaction(i,&realActionStruct,NULL);
+        sigaddset(&realActionStruct.sa_mask,i);
     }
 
     //interrupt signal handle
@@ -133,7 +135,14 @@ int main(int argc, char **argv) {
 
         signal(SIGALRM,childHandler); // listen for alarm
         value -> sival_int = getpid();
+
+        //time_t start_t, end_t;
+        //double diff_t;
+
         sigqueue(parent, SIGUSR1, *value); // send SIGUSR1 with own PID
+        clock_t before = clock();
+        //time(&start_t);
+
         while(!permission); // wait for permission
 
         //send realtimesignal
@@ -141,21 +150,29 @@ int main(int argc, char **argv) {
         value -> sival_int = getpid();
         sigqueue(parent,realTimeSignal, *value);
 
+        //time(&end_t);
+        //diff_t = difftime(end_t, start_t);
+
+        //printf("Execution time = %f\n", diff_t);
+
         //display statistics
-        if(getrusage(RUSAGE_SELF,usage) == 0) {
-            printf("\nChild process PID: %d has finished job. S: %lf s, U: %lf s\n",
-                   getpid(), (double)usage->ru_stime.tv_sec + (double)(usage->ru_stime.tv_usec)/1e6,
-                   (double)usage->ru_utime.tv_sec + (double)(usage->ru_utime.tv_usec)/1e6);
-        } else {
-            perror("\nCouldn't get the usage info of child process\n");
-            exit(EXIT_FAILURE);
-        }
+//        if(getrusage(RUSAGE_SELF,usage) == 0) {
+//            printf("\nChild process PID: %d has finished job. S: %lf s, U: %lf s\n",
+//                   getpid(), (double)usage->ru_stime.tv_sec + (double)(usage->ru_stime.tv_usec)/1e6,
+//                   (double)usage->ru_utime.tv_sec + (double)(usage->ru_utime.tv_usec)/1e6);
+//        } else {
+//            perror("\nCouldn't get the usage info of child process\n");
+//            exit(EXIT_FAILURE);
+//        }
+        clock_t diff = clock() - before;
 
         free(usage);
         free(value);
 
-        exit(EXIT_SUCCESS);
+        exit((int) diff);
     }
 
-    while(1) {} // wait for signals
+    while(1) {
+        pause();
+    } // wait for signals
 }
