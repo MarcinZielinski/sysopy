@@ -70,6 +70,11 @@ int main(int argc, char** argv) {
     int L = stoi(argv[1]); // number of children
     int type = stoi(argv[2]); // number of needed requests
 
+    if(type > 3 || type < 1) {
+        fprintf(stderr,"\nYou must specify the Type argument between values: 1,2,3. 1 - kill, 2 - sigqueue, 3 - real-time signal with kill\n");
+        exit(EXIT_FAILURE);
+    }
+
     signal(SIGINT,killAll);
 
     int sig1 = SIGUSR1;
@@ -88,8 +93,7 @@ int main(int argc, char** argv) {
 
     if(child == 0) {
         while (the_end_of_child == 0){pause();}
-        printf("Number of received signals by child: %d\n", signalsReceivedByChild);
-        exit(EXIT_SUCCESS);
+        exit(signalsReceivedByChild);
     } else {
         sleep(1);
         union sigval *value = malloc(sizeof(union sigval));
@@ -115,7 +119,7 @@ int main(int argc, char** argv) {
 
     int status;
     wait(&status);
-
+    printf("Number of received signals by child: %d\n", WEXITSTATUS(status));
     printf("Number of sent signals to child: %d\n",signalsSentToChild);
     printf("Number of received signals from child: %d\n", signalsReceivedFromChild);
 
