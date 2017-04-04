@@ -8,14 +8,21 @@
 #include <signal.h>
 #include <unistd.h>
 #include <time.h>
-#include <sys/resource.h>
-#include <string.h>
+#include <wait.h>
 
 int N; // number of forked processes
 int K; // number of needed requests
-pid_t *PIDs; // array of processes that requested permission
 pid_t parent; // parent (main program) pid
-int permission = 0; // the permission to grant
+volatile sig_atomic_t permission = 0; // the permission to grant
+volatile sig_atomic_t requests = 0; // number of requests
+
+struct childStruct {
+    pid_t pid;
+    int usr1;
+    int rt;
+} *childs;
+
+
 
 int stoi(char* str) {
     char *endptr;
@@ -36,9 +43,14 @@ int stoi(char* str) {
 }
 
 void killAll(int signum) {
-    if(getpid() != parent) {
-        printf("\nSIGINT received, killing %d\n", getpid());
-        kill(getpid(), SIGKILL);
+    int pid = getpid();
+    if(pid != parent) {
+        for(int i=0;i<N;++i) {
+            if(childs[i].pid == pid) {
+                childs[i].usr1 = 2;
+            }
+        }
+        exit(255);
     }
     else {
         printf("\nExiting program.\n");
@@ -47,16 +59,16 @@ void killAll(int signum) {
         exit(EXIT_SUCCESS);
     }
 }
-volatile int requests = 0;
 void sigHandler(int signum, siginfo_t *value, void *extra) {
-    PIDs[requests++] = value->si_value.sival_int;
-    printf("\nRequest: %d\n",requests);
-    printf("Signal received: %d from %zu\n", signum, value->si_value);
+    ++requests;
+
+    childs[requests-1].pid = value->si_value.sival_int;
+    childs[requests-1].usr1 = signum;
     if (requests > K) {
-        kill(PIDs[requests-1], SIGALRM);
+        kill(childs[requests-1].pid,SIGALRM);
     } else if (requests == K) {
         for (int i = 0; i < requests; ++i) {
-            kill(PIDs[i], SIGALRM);
+            kill(childs[i].pid,SIGALRM);
         }
     }
     return;
@@ -66,17 +78,11 @@ void childHandler(int signum) {
 }
 volatile sig_atomic_t realReceived = 0;
 void sigRealHandler(int signum, siginfo_t *value, void *extra) {
+    childs[realReceived].rt=signum;
     ++realReceived;
-    printf("\nReal-time signal received: %d from %zu\n", signum, value->si_value);
-    if(realReceived >= N) {
-        printf("\nAll processes finished job, exiting program\n");
-        sleep(1);
-        printf("\nEXIT\n");
-        exit(EXIT_SUCCESS);
-    }
+    //printf("\nReal-time signal received: %d from %zu\n", signum, value->si_value);
     return;
 }
-
 int main(int argc, char **argv) {
     if(argc != 3) {
         fprintf(stderr,"\nYou must specify two arguments. N - number of child processes and K - number of request needed.\n");
@@ -89,11 +95,11 @@ int main(int argc, char **argv) {
         fprintf(stderr, "\nThe number of requests mustn't be greater than the processes number.\n");
         exit(EXIT_FAILURE);
     }
-    PIDs = malloc(sizeof(sigval_t)*N); // store the PIDs of child which has requested the access to continue
+    childs = calloc((size_t) N, sizeof(childs));
 
     //USR1 signal handle
     struct sigaction actionStruct;
-    actionStruct.sa_flags = SA_SIGINFO;
+    actionStruct.sa_flags = SA_SIGINFO | SA_NODEFER;
     actionStruct.sa_sigaction = &sigHandler;
     sigfillset(&actionStruct.sa_mask);
     sigdelset(&actionStruct.sa_mask,SIGUSR1);
@@ -109,7 +115,7 @@ int main(int argc, char **argv) {
     realActionStruct.sa_flags = SA_SIGINFO;
     realActionStruct.sa_sigaction = &sigRealHandler;
     sigfillset(&realActionStruct.sa_mask);
-    for(int i = SIGRTMIN; i < SIGRTMIN + 32;++i) {
+    for(int i = SIGRTMIN; i < SIGRTMIN+32;++i) {
         sigdelset(&realActionStruct.sa_mask,i);
         sigaction(i,&realActionStruct,NULL);
         sigaddset(&realActionStruct.sa_mask,i);
@@ -117,6 +123,7 @@ int main(int argc, char **argv) {
 
     //interrupt signal handle
     signal(SIGINT,killAll);
+    signal(SIGALRM,childHandler); // listen for alarm
 
     parent = getpid();
     pid_t child = 1;
@@ -125,54 +132,53 @@ int main(int argc, char **argv) {
             break;
         }
     }
-
     if(child == 0) {
         srand((unsigned int) (time(NULL) ^ (getpid() << 16)));
-        struct rusage *usage = malloc(sizeof(struct rusage));
-        sleep((unsigned int) (rand() % 11));
+        unsigned int sleepTime = (unsigned int) (rand() % 11);
+        sleep(sleepTime);
 
         union sigval *value = malloc(sizeof(union sigval));
 
-        signal(SIGALRM,childHandler); // listen for alarm
         value -> sival_int = getpid();
 
-        //time_t start_t, end_t;
-        //double diff_t;
-
         sigqueue(parent, SIGUSR1, *value); // send SIGUSR1 with own PID
-        clock_t before = clock();
-        //time(&start_t);
 
-        while(!permission); // wait for permission
+        clock_t before = clock();
+
+        while(permission == 0) { // wait for permission
+            if((clock()-before)/CLOCKS_PER_SEC > 10) {
+                printf("\nNo response from parent. Signal probably overwriten.\n");
+                raise(SIGINT);
+            }
+        }
 
         //send realtimesignal
         int realTimeSignal = SIGRTMIN + (rand() % 32);
         value -> sival_int = getpid();
         sigqueue(parent,realTimeSignal, *value);
 
-        //time(&end_t);
-        //diff_t = difftime(end_t, start_t);
-
-        //printf("Execution time = %f\n", diff_t);
-
-        //display statistics
-//        if(getrusage(RUSAGE_SELF,usage) == 0) {
-//            printf("\nChild process PID: %d has finished job. S: %lf s, U: %lf s\n",
-//                   getpid(), (double)usage->ru_stime.tv_sec + (double)(usage->ru_stime.tv_usec)/1e6,
-//                   (double)usage->ru_utime.tv_sec + (double)(usage->ru_utime.tv_usec)/1e6);
-//        } else {
-//            perror("\nCouldn't get the usage info of child process\n");
-//            exit(EXIT_FAILURE);
-//        }
-        clock_t diff = clock() - before;
-
-        free(usage);
+        int diff = (int)((clock() - before) / (CLOCKS_PER_SEC));
         free(value);
 
-        exit((int) diff);
+        exit(diff);
     }
 
-    while(1) {
-        pause();
-    } // wait for signals
+    int status = 0;
+    int pid = 0;
+    int counter = 0;
+    while(counter<N) { // wait for signals
+        if((pid = wait(&status))!=-1) {
+            if(WEXITSTATUS(status)==255) {
+                printf("\nChildren finished working with SIGINT. PID: %d, EXIT CODE: %d\n", pid, WEXITSTATUS(status));
+            } else {
+                printf("\nChildren finished working. PID: %d, 1st signal: %d, 2nd signal: %d, EXIT CODE: %d\n", pid,
+                       childs[counter].usr1, childs[counter].rt, WEXITSTATUS(status));
+            }
+            ++counter;
+        }
+    }
+    printf("\nAll processes finished job, exiting program\n");
+    sleep(1);
+    printf("\nEXIT\n");
+    exit(EXIT_SUCCESS);
 }
