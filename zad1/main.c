@@ -3,10 +3,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-struct command
+typedef struct command
 {
     const char **argv;
-};
+} command;
 // 0 (stdin) - read, 1 (stdout) - write
 int spawn_proc (int in, int out, struct command *cmd)
 {
@@ -35,7 +35,6 @@ int spawn_proc (int in, int out, struct command *cmd)
 int fork_pipes (int n, struct command *cmd)
 {
     int i;
-    pid_t pid;
     int in, fd [2];
 
     in = STDIN_FILENO; // first child will read from console (nothing will be read)
@@ -44,35 +43,56 @@ int fork_pipes (int n, struct command *cmd)
     {
         pipe (fd); // brand-new PIPE!
 
-        /* f [1] is the write end of the pipe, we carry `in` from the prev iteration.  */
         spawn_proc (in, fd [1], cmd + i); // new child will read from the old pipe, write to the new pipe
 
-        /* No need for the write end of the pipe, the child will write here.  */
         close (fd [1]); // we can close this write end, because child will write here (he copied the pipe for himself)
 
-        /* Keep the read end of the pipe, the next child will read from there.  */
         in = fd [0]; // the next child will read from here (old child wrote to this pipe something)
     }
 
-    /* Last stage of the pipeline - set stdin be the read end of the previous pipe
-       and output to the original file descriptor 1. */
     if (in != 0)
         dup2 (in, STDIN_FILENO);
 
-    /* Execute the last stage with the current process. */
     return execvp (cmd [i].argv [0], (char * const *)cmd [i].argv);
 }
 
+struct command* splitArguments(int *argc, char **argv) {
+    ++argv; // the program name (argv[0]) arguments is not needed
+    --(*argc); // therefore change the number of arguments --
 
+    int pipes = 0;
+    for(int i=0;i<*argc;++i) { // we calculate the number of pipes to acknowledge the number of commands to execute
+        if(strlen(argv[i]) == 1 && argv[i][0] == '|') {
+            ++pipes;
+        }
+    }
+    command* res = malloc((pipes+1)*sizeof(struct command));
+    int cur_command_len = 0; // current command amount of arguments
+    int commands = 0; // total amount of commands
+    for(int k = 0;k<=*argc;++k) {
+        ++cur_command_len;
+        if(k == *argc || (strlen(argv[k]) == 1 && argv[k][0] == '|')) {
+            res[commands].argv = malloc((cur_command_len)*sizeof(char*));
+            res[commands].argv[--cur_command_len] = NULL;
 
-int main ()
+            for (int i = 0; cur_command_len > 0; ++i, --cur_command_len) {
+                res[commands].argv[i] = strdup(argv[k - cur_command_len]);
+            }
+            ++commands;
+        }
+    }
+    *argc = commands;
+    return res;
+}
+
+int main (int argc, char ** argv)
 {
-    const char *ls[] = { "ls", "-l", 0 };
-    const char *awk[] = { "awk", "{print $1}", 0 };
-    const char *sort[] = { "sort", 0 };
-    const char *uniq[] = { "uniq", 0 };
+    if(argc == 1) {
+        fprintf(stderr,"Pass arguments as a commands separated with the pipe (\"|\") operator");
+        return EXIT_FAILURE;
+    }
 
-    struct command cmd [] = { {ls}, {awk}, {sort}, {uniq} };
+    command* cmd = splitArguments(&argc, argv);
 
-    return fork_pipes (4, cmd);
+    return fork_pipes (argc, cmd);
 }
