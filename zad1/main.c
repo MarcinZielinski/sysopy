@@ -74,22 +74,17 @@ struct command* splitArguments(char * str, int *n) {
 
     char **argv = malloc(sizeof(char*));
     char* p = strtok(str, " ");
-    int argumentsNumber = 0;
     int currCommandIndex = 0;
     int currCommandLen = 0;
     while(p!=NULL) {
- //       ++argumentsNumber;
         ++currCommandLen;
 
         argv = realloc(argv,currCommandLen*sizeof(char*));
         argv[currCommandLen-1] = strdup(p);
 
         if(strlen(p) == 1 && p[0]=='|') {
-            //res[currCommandIndex].argv = malloc((currCommandLen)*sizeof(char*));
-            //res[currCommandIndex].argv[--currCommandLen] = NULL;
             argv[currCommandLen-1] = NULL;
             res[currCommandIndex].argv = (const char **) argv;
-            //argv = NULL;
             argv = malloc(sizeof(char*));
 
             ++currCommandIndex;
