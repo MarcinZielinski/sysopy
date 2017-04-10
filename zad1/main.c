@@ -2,6 +2,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 
 typedef struct command
 {
@@ -32,67 +33,93 @@ int spawn_proc (int in, int out, struct command *cmd)
     return pid;
 }
 
-int fork_pipes (int n, struct command *cmd)
+void fork_pipes (int n, struct command *cmd)
 {
     int i;
     int in, fd [2];
 
     in = STDIN_FILENO; // first child will read from console (nothing will be read)
 
-    for (i = 0; i < n - 1; ++i)
+    for (i = 0; i < n -1; ++i)
     {
         pipe (fd); // brand-new PIPE!
 
-        spawn_proc (in, fd [1], cmd + i); // new child will read from the old pipe, write to the new pipe
-
+        if(spawn_proc (in, fd [1], cmd + i) == -1) { // new child will read from the old pipe, write to the new pipe
+            perror("Invalid command");
+            exit(EXIT_FAILURE);
+        }
         close (fd [1]); // we can close this write end, because child will write here (he copied the pipe for himself)
 
         in = fd [0]; // the next child will read from here (old child wrote to this pipe something)
     }
-
-    if (in != 0)
-        dup2 (in, STDIN_FILENO);
-
-    return execvp (cmd [i].argv [0], (char * const *)cmd [i].argv);
+    if(spawn_proc(in,STDOUT_FILENO,cmd + n - 1) == -1) { // last child writes down on stdout
+        perror("Invalid command");
+        exit(EXIT_FAILURE);
+    }
 }
 
-struct command* splitArguments(int *argc, char **argv) {
-    ++argv; // the program name (argv[0]) arguments is not needed
-    --(*argc); // therefore change the number of arguments --
+struct command* splitArguments(char * str, int *n) {
+    *n = 0;
+    if(str == NULL) return NULL;
+    if(strlen(str)==0) return NULL;
 
-    int pipes = 0;
-    for(int i=0;i<*argc;++i) { // we calculate the number of pipes to acknowledge the number of commands to execute
-        if(strlen(argv[i]) == 1 && argv[i][0] == '|') {
-            ++pipes;
-        }
-    }
-    command* res = malloc((pipes+1)*sizeof(struct command));
-    int cur_command_len = 0; // current command amount of arguments
-    int commands = 0; // total amount of commands
-    for(int k = 0;k<=*argc;++k) {
-        ++cur_command_len;
-        if(k == *argc || (strlen(argv[k]) == 1 && argv[k][0] == '|')) {
-            res[commands].argv = malloc((cur_command_len)*sizeof(char*));
-            res[commands].argv[--cur_command_len] = NULL;
+    while(str[0] == ' ') ++str;
 
-            for (int i = 0; cur_command_len > 0; ++i, --cur_command_len) {
-                res[commands].argv[i] = strdup(argv[k - cur_command_len]);
-            }
-            ++commands;
-        }
+    int commands = 1;
+    for(int i=0;str[i]!='\0';++i) { // we calculate the number of pipes to acknowledge the number of commands to execute
+        if(str[i] == '|') ++commands;
     }
-    *argc = commands;
+    *n = commands;
+    command *res = malloc((commands)*sizeof(struct command));
+
+    char **argv = malloc(sizeof(char*));
+    char* p = strtok(str, " ");
+    int argumentsNumber = 0;
+    int currCommandIndex = 0;
+    int currCommandLen = 0;
+    while(p!=NULL) {
+ //       ++argumentsNumber;
+        ++currCommandLen;
+
+        argv = realloc(argv,currCommandLen*sizeof(char*));
+        argv[currCommandLen-1] = strdup(p);
+
+        if(strlen(p) == 1 && p[0]=='|') {
+            //res[currCommandIndex].argv = malloc((currCommandLen)*sizeof(char*));
+            //res[currCommandIndex].argv[--currCommandLen] = NULL;
+            argv[currCommandLen-1] = NULL;
+            res[currCommandIndex].argv = (const char **) argv;
+            //argv = NULL;
+            argv = malloc(sizeof(char*));
+
+            ++currCommandIndex;
+            currCommandLen = 0;
+        }
+
+        p = strtok(NULL, " ");
+    }
+    argv = realloc(argv,(currCommandLen+1)*sizeof(char*));
+    argv[currCommandLen] = NULL;
+    res[currCommandIndex].argv = (const char **) argv;
+
     return res;
 }
+command *cmd = NULL;
+void sigintHandler(int signum) {
+    printf("\nSigint received. Exiting program.\n");
+    free(cmd);
+    exit(EXIT_SUCCESS);
+}
 
-int main (int argc, char ** argv)
+int main ()
 {
-    if(argc == 1) {
-        fprintf(stderr,"Pass arguments as a commands separated with the pipe (\"|\") operator");
-        return EXIT_FAILURE;
+    char argv[1024];
+    int n = 0;
+    signal(SIGINT,sigintHandler);
+    while((1 == scanf("%[^\n]%*c", argv))) {
+        command *cmd = splitArguments(argv, &n);
+        fork_pipes(n,cmd);
+        free(cmd);
     }
-
-    command* cmd = splitArguments(&argc, argv);
-
-    return fork_pipes (argc, cmd);
+    return 0;
 }
