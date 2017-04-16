@@ -2,13 +2,12 @@
 // Created by Mrz355 on 19.03.17.
 //
 
-#include <ftw.h>
 #include <string.h>
 #include <stdio.h>
 #include <dirent.h>
 #include <stdlib.h>
 #include <time.h>
-#include <limits.h>
+#include <linux/limits.h>
 
 
 char* getPriviliages(__mode_t priviliages, int isFile) {
@@ -87,7 +86,7 @@ void sysSearch(char* dirPath, int bytes) {
         strcat(absPath,fileName); // eg. /home/dir/file
 
         int res = stat(absPath,statistics);
-        if(res>=0 && ((statistics->st_mode) & S_IFMT)==S_IFREG) { // if found a file
+        if(res>=0 && S_IFREG(statistics->st_mode)!=0) { // if found a file
             int fileSize = (int) statistics->st_size;
             if(fileSize <= bytes) {     //with less size than specified, go and printf it
                 __mode_t priviliages = ((statistics->st_mode) & 07777);
@@ -98,7 +97,7 @@ void sysSearch(char* dirPath, int bytes) {
             }
         }
 
-        if(res>=0 && ((statistics->st_mode) & S_IFMT)==S_IFDIR && ((statistics->st_mode) & S_IFMT)!=S_IFLNK) { // if found dir, not a symbolic link, go into
+        if(res>=0 && S_IFDIR(statistics->st_mode)!=0 && S_IFLNK(statistics->st_mode)==0) { // if found dir, not a symbolic link, go into
             sysSearch(absPath,bytes);
         }
 

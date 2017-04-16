@@ -1,7 +1,7 @@
 //
 // Created by Mrz355 on 19.03.17.
 //
-
+#define _XOPEN_SOURCE 500
 #include <stdio.h>
 #include <fcntl.h>
 #include <stdlib.h>
@@ -10,14 +10,10 @@
 #include <unistd.h>
 #include <linux/limits.h>
 
-void lockCharW(int fd) {
-    int place;
-    puts("Na jaki znak ustawić rygiel do zapisu?");
-    scanf("%d",&place);
-
+int _lockCharW(int fd, int pos) {
     struct flock *lockStruct = malloc(sizeof(struct flock));
     lockStruct->l_type=F_WRLCK;
-    lockStruct->l_start=place;
+    lockStruct->l_start=pos;
     lockStruct->l_len=1;
     lockStruct->l_whence=SEEK_SET;
 
@@ -28,21 +24,27 @@ void lockCharW(int fd) {
         } else {
             printf("Error: %s, errno id: %d\n\n",strerror(errno),errno);
         }
+        return -1;
     } else {
         puts("Udało się założyć rygiel\n");
     }
 
     free(lockStruct);
+    return 0;
 }
 
-void lockCharR(int fd) {
-    int place;
-    puts("Na jaki znak ustawić rygiel do odczytu?");
-    scanf("%d",&place);
+void lockCharW(int fd) {
+    int pos;
+    puts("Na jaki znak ustawić rygiel do zapisu?");
+    scanf("%d",&pos);
 
+    _lockCharW(fd,pos);
+}
+
+int _lockCharR(int fd, int pos) {
     struct flock *lockStruct= malloc(sizeof(struct flock));
     lockStruct->l_type=F_RDLCK; // what type of lock (Read lock)
-    lockStruct->l_start=place;  // what byte to lock
+    lockStruct->l_start=pos;  // what byte to lock
     lockStruct->l_len=1;    // how many bytes to lock
     lockStruct->l_whence=SEEK_SET;  // where to start (beginning)
 
@@ -53,34 +55,44 @@ void lockCharR(int fd) {
         } else {
             printf("Error: %s, errno id: %d\n\n",strerror(errno),errno);
         }
+        return -1;
     } else {
         puts("Udało się założyć rygiel\n");
     }
 
     free(lockStruct);
+    return 0;
+}
+
+void lockCharR(int fd) {
+    int pos;
+    puts("Na jaki znak ustawić rygiel do odczytu?");
+    scanf("%d",&pos);
+
+    _lockCharR(fd,pos);
 }
 
 void printLocks(int fd) {
     int end = (int) lseek(fd, 0, SEEK_END);
     int pos = 0;
-
+    puts("Aktywne rygle:");
     struct flock *lockStruct= malloc(sizeof(struct flock));
     while(pos<end) {
-        lockStruct->l_type=F_RDLCK;
+        lockStruct->l_type=F_RDLCK; // pl.: Jak jest ReadLock to nie mozesz zapisywac do pliku
         lockStruct->l_start=pos;
         lockStruct->l_len=1;
         lockStruct->l_whence=SEEK_SET;
         fcntl(fd,F_GETLK,lockStruct); // trying to set potential lock
-        if (lockStruct->l_type != F_UNLCK){
-            printf("Read lock at: %d byte. PID: %d\n",pos,lockStruct->l_pid);
+        if (lockStruct->l_type != F_UNLCK) {
+            printf("Rygiel na zapis na: %d bajt. PID: %d\n",pos,lockStruct->l_pid);
         }
-        lockStruct->l_type=F_WRLCK;
+        lockStruct->l_type=F_WRLCK; // pl.: Jak jest WriteLock to nie mozesz ani zapisywac ani czytac z pliku
         lockStruct->l_start=pos;
         lockStruct->l_len=1;
         lockStruct->l_whence=SEEK_SET;
         fcntl(fd,F_GETLK,lockStruct);
         if(lockStruct->l_type != F_UNLCK) {
-            printf("Write lock at: %d byte. PID: %d\n",pos,lockStruct->l_pid);
+            printf("Rygiel na odczyt na: %d bajt. PID: %d\n",pos,lockStruct->l_pid);
         }
 
         ++pos; // go to the next byte
@@ -89,11 +101,7 @@ void printLocks(int fd) {
     free(lockStruct);
 }
 
-void unlockByte(int fd) {
-    int pos;
-    puts("Z którego bajtu pliku chcesz ściągnąć rygiel?");
-    scanf("%d",&pos);
-
+void _unlockByte(int fd, int pos) {
     struct flock *lockStruct= malloc(sizeof(struct flock));
     lockStruct->l_type=F_UNLCK; // what type of lock (Read lock)
     lockStruct->l_start=pos;  // what byte to lock
@@ -112,6 +120,14 @@ void unlockByte(int fd) {
     free(lockStruct);
 }
 
+void unlockByte(int fd) {
+    int pos;
+    puts("Z którego bajtu pliku chcesz ściągnąć rygiel?");
+    scanf("%d",&pos);
+
+    _unlockByte(fd,pos);
+}
+
 void readByte(int fd) {
     int pos;
     puts("Który znak chcesz odczytać?");
@@ -120,12 +136,20 @@ void readByte(int fd) {
         puts("Przekroczono rozmiar pliku!\n");
         return;
     }
+    puts("\nPróba założenia rygla na odczyt...");
+    if(_lockCharR(fd,pos)==-1) { // read lock, because we do not want anybody to make changes to the file
+        puts("Nie można zatem odczytać znaku\n");
+        return;
+    }
 
     lseek(fd,pos,SEEK_SET);
     char c;
     read(fd,&c,1);
 
     printf("Odczytany znak to: %c\n\n",c);
+
+    puts("Zwalnianie rygla...");
+    _unlockByte(fd,pos);
 }
 
 void writeByte(int fd) {
@@ -137,8 +161,14 @@ void writeByte(int fd) {
         return;
     }
 
+    puts("\nPróba założenia rygla na zapis...");
+    if(_lockCharW(fd,pos) == -1) { // write lock, because we do not want anybody to see the file during the byte writing
+        puts("Nie można zatem zapisać znaku\n");
+        return;
+    };
+
     char c;
-    puts("Na jaki?");
+    puts("Jaki znasz chcesz wstawic w to miejsce?");
     scanf(" %c",&c);
 
     lseek(fd,pos,SEEK_SET);
@@ -147,6 +177,9 @@ void writeByte(int fd) {
     } else {
         puts("Nie udało się zapisać bajtu do pliku\n");
     }
+
+    puts("Zwalnianie rygla...");
+    _unlockByte(fd,pos);
 }
 
 void lockCharRWait(int fd) {
@@ -243,7 +276,7 @@ void menu(char* filePath) {
 
 int main(int argc, char ** argv) {
     if(argc!=2) {
-        printf("Błędna ilosc argumentow!");
+        puts("Błędna ilosc argumentow! Podaj ściężkę do pliku!");
         exit(EXIT_FAILURE);
     }
     char* absPath = malloc(PATH_MAX);
