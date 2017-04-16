@@ -38,6 +38,8 @@ void write_graph(int **T) {
     fprintf(gnuplot, "plot 'data' with image\n");
 
     fflush(gnuplot);
+
+    fprintf(stdout, "Waiting for char to exit...\n");
     getc(stdin);
 
     pclose(gnuplot);
