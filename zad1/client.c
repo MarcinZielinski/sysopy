@@ -2,7 +2,7 @@
 // Created by Mrz355 on 19.04.17.
 //
 
-#include <errno.h>
+#include <signal.h>
 #include "communication.h"
 
 key_t private_qid; // client's private queue for receiving messages
@@ -16,8 +16,14 @@ void exit_handler() {
     msgctl(private_qid, IPC_RMID, NULL);
 }
 
+void sig_handler(int signum) {
+    fprintf(stdout,"Server terminated. You've succesfully logged out.\n");
+    exit(EXIT_SUCCESS);
+}
+
 int main() {
     atexit(exit_handler);
+    signal(SIGRTMIN,sig_handler);
 
     int id_from_server;
 
@@ -45,7 +51,7 @@ int main() {
     struct message msg;
     msg.type = LOGIN;
     msg.pid = getpid();
-    printf("Sending key to server: %d\nMy queue id: %d\n",private_key,private_qid);
+    printf("Sending request to server..\n");
     sprintf(msg.value,"%d",private_key);
     if(msgsnd(server_qid, &msg, MAX_MSG_SIZE, 0)!=0) {
         fprintf(stderr,"Couldn't send message to server: %s\n",strerror(errno));
@@ -54,8 +60,16 @@ int main() {
     if(msgrcv(private_qid, &msg, MAX_MSG_SIZE, 0, 0) < 0) {
         exit_program(EXIT_FAILURE,"Error while receiving id from server");
     }
+
+    if(msg.type == DECLINE) {
+        exit_program(EXIT_FAILURE, "Couldn't connect to server");
+    }
+
     id_from_server = atoi(msg.value);
     printf("Received id from server: %d\n",id_from_server);
+
+    printf("\nPass the command you want to send to server. Please pass the type (ECHO, UPPER, TIME, TERMINATE, LOGOUT) "
+                   "and after white-space character the wanted message.\n\n");
 
     while(1) {
         char line[MAX_MSG_LEN];
@@ -65,23 +79,26 @@ int main() {
         fgets(line,MAX_MSG_LEN,stdin);
         char *p = NULL;
         if((p = strtok(line," ")) == NULL) {
-            fprintf(stderr,"Not valid message. Please pass type (ECHO, UPPER, TIME, TERMINATE) and after white-space character the message itself.\n");
+            fprintf(stderr,"Not valid message. Please pass type (ECHO, UPPER, TIME, TERMINATE, LOGOUT) and after white-space character the message itself.\n");
             continue;
         }
         if(p[strlen(p)-1]=='\n') p[strlen(p)-1] = '\0';  // this is a case when TIME is used as a single command
         strcpy(type,p);
 
-        for(int i=0;i<sizeof(COMMANDS_STR)/sizeof(COMMANDS_STR[0]);++i) {
+        for(int i=0;i<sizeof(COMMANDS_STR)/sizeof(COMMANDS_STR[0]) - 1;++i) { // -1 because we do not want clients to pass LOGIN type
             if(strcmp(type,COMMANDS_STR[i])==0) {
                 msg.type = COMMANDS_ENUM[i];
             }
         }
 
-        if(msg.type != TIME) {
-            if((p = strtok(NULL,"\n")) == NULL) {
-                fprintf(stderr,"Not valid message. Please pass type (ECHO, UPPER, TIME, TERMINATE) and after white-space character the message itself.\n");
-                continue;
-            }
+        if(msg.type == NOC) {
+            fprintf(stderr,"Not valid message. Please pass type (ECHO, UPPER, TIME, TERMINATE) and after white-space character the message itself.\n");
+            continue;
+        }
+
+        if((p = strtok(NULL,"\n")) == NULL) {
+            msg.value[0] = '\0';
+        } else {
             strcpy(msg.value,p);
         }
 
@@ -90,14 +107,14 @@ int main() {
         }
 
         if(msgrcv(private_qid, &msg, MAX_MSG_SIZE, 0, 0) < 0) {
-            exit_program(EXIT_FAILURE,"Error while receiving id from server");
-            break;
+            fprintf(stderr,"Error while receiving message from server: %s\n",strerror(errno));
         }
 
-        if(msg.type == LOGOUT) {
+        printf("Received from server: %s\n",msg.value);
+
+        if(msg.type == LOGOUT || msg.type == TERMINATE) {
             break;
         }
-        printf("Received from server: %s\n",msg.value);
     }
 
     return 0;

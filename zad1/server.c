@@ -2,9 +2,9 @@
 // Created by Mrz355 on 19.04.17.
 //
 
-#include <errno.h>
 #include <ctype.h>
 #include <time.h>
+#include <signal.h>
 #include "communication.h"
 
 typedef struct client {
@@ -14,8 +14,10 @@ typedef struct client {
 
 int server_qid; // id of this server queue
 struct client clients[MAX_CLIENTS]; // clients connected to server
-//int clients[MAX_CLIENTS];
+void handle_message(struct message msg) ;
+
 int client_count=0;
+int client_unique_id=0;
 
 void exit_program(int status, char *exit_message) {
     perror(exit_message);
@@ -40,7 +42,6 @@ void handle_login(struct message msg) {
         fprintf(stderr,"Couldn't open queue from client with PID: %d: %s",msg.pid,strerror(errno));
         return;
     }
-    printf("Received key: %d with queue %d\n",client_key,client_qid);
 
 
     struct message response;
@@ -57,16 +58,13 @@ void handle_login(struct message msg) {
         clients[client_count] = c1;
 
         response.type = ACCEPT;
-        sprintf(response.value,"%d",client_count);
+        sprintf(response.value,"%d",client_unique_id++);
         printf("%d connected!\n",client_pid);
         ++client_count;
     }
     if(msgsnd(client_qid,&response,MAX_MSG_SIZE,0) != 0) {
         fprintf(stderr,"Couldn't send message to %d: %s\n",client_pid,strerror(errno));
     }
-}
-void handle_logout(struct message msg) {
-
 }
 
 int get_client_qid(pid_t pid) {
@@ -78,6 +76,48 @@ int get_client_qid(pid_t pid) {
     return -1; // error, can't find qid
 }
 
+void handle_logout(struct message msg) {
+    pid_t client_pid = msg.pid;
+    int client_qid;
+    if((client_qid = get_client_qid(client_pid)) == -1) {
+        fprintf(stderr,"Not connected client %d sent message, terminating action",msg.pid);
+        return;
+    }
+    int i;
+    for(i=0;i<client_count;++i) {
+        if(clients[i].pid == client_pid) {
+            printf("%d disconnected\n",client_pid);
+            break;
+        }
+    }
+    --client_count;
+    while(i<client_count) {
+        clients[i] = clients[i+1];
+        ++i;
+    }
+    struct message response;
+    response.pid = getpid();
+    strcpy(response.value,"You've succesfully logged out");
+    response.type = LOGOUT;
+    if(msgsnd(client_qid,&response,MAX_MSG_SIZE,0) != 0) {
+        fprintf(stderr,"Couldn't send message to %d: %s\n",client_pid,strerror(errno));
+    }
+}
+void handle_default(struct message msg) {
+    int client_qid;
+    if((client_qid = get_client_qid(msg.pid)) == -1) {
+        fprintf(stderr,"Not connected client %d sent message, terminating action",msg.pid);
+        return;
+    }
+
+    struct message response;
+    response.value[0] = '\0';
+    response.pid = getpid();
+    response.type = NOC;
+    if(msgsnd(client_qid,&response,MAX_MSG_SIZE,0) != 0) {
+        fprintf(stderr,"Couldn't send message to %d: %s\n",msg.pid,strerror(errno));
+    }
+}
 void handle_echo(struct message msg) {
     int client_qid;
     if((client_qid = get_client_qid(msg.pid)) == -1) {
@@ -123,19 +163,45 @@ void handle_time(struct message msg) {
 
     time_t rawtime;
     struct tm *timeinfo;
-    time(&rawtime);
-    timeinfo = localtime(&rawtime);
+    time(&rawtime); // seconds since epoch
+    timeinfo = localtime(&rawtime); // local time-zone
 
     struct message response;
-    strcpy(response.value,asctime(timeinfo));
+    strcpy(response.value,asctime(timeinfo)); // pretty-formatted string
     response.pid = getpid();
     response.type = TIME;
     if(msgsnd(client_qid,&response,MAX_MSG_SIZE,0) != 0) {
         fprintf(stderr,"Couldn't send message to %d: %s\n",msg.pid,strerror(errno));
     }
 }
-void handle_terminate(struct message msg) {
+void handle_terminate(struct message trigger_msg) {
+    printf("Terminating server. Responding to queued messages..\n");
+    while(1) {
+        struct msqid_ds stats;
+        struct message msg;
+        msgctl(server_qid, IPC_STAT, &stats);
 
+        printf("Number of messages left: %zu\n",stats.msg_qnum);
+        if(msgrcv(server_qid, &msg, MAX_MSG_SIZE, 0, IPC_NOWAIT) < 0) {
+            break;
+        }
+        printf("%d messages: %s\n",msg.pid,msg.value);
+        handle_message(msg);
+    }
+    struct message response;
+    response.pid = getpid();
+    response.type = TERMINATE;
+    strcpy(response.value,"Server terminated.");
+
+    for(int i=0;i<client_count;++i) {
+        if(msgsnd(clients[i].qid,&response,MAX_MSG_SIZE,0) != 0) {
+            fprintf(stderr,"Couldn't send message to %d: %s\n",clients[i].pid,strerror(errno));
+        }
+        kill(clients[i].pid,SIGRTMIN);
+    }
+
+    printf("Terminating server\n");
+    exit(EXIT_SUCCESS);
 }
 
 void handle_message(struct message msg) {
@@ -159,25 +225,37 @@ void handle_message(struct message msg) {
             handle_terminate(msg);
             break;
         default:
+            handle_default(msg);
             break;
     }
 }
 
+void sigint_handler(int signum) {
+    for(int i=0;i<client_count;++i) {
+        kill(clients[i].pid,SIGRTMIN);
+    }
+    printf("Server terminated.\n");
+    exit(EXIT_SUCCESS);
+}
+
 int main() {
+    atexit(exit_handler);
+    signal(SIGINT,sigint_handler);
+
     key_t server_key = ftok(getenv(SERVER_PATH), SERVER_ID); // create the special server key
     server_qid = msgget(server_key, IPC_CREAT | 0600); // create the brand-new server queue
+
+    printf("Server launched.\n");
 
     while(1) {
         struct msqid_ds stats;
         struct message msg;
         msgctl(server_qid, IPC_STAT, &stats);
-
-        printf("Number of messages in queue now: %zu\nPid of process who last sent: %d\n",stats.msg_qnum,stats.msg_lspid);
         if(msgrcv(server_qid, &msg, MAX_MSG_SIZE, 0, 0) < 0) {
             exit_program(EXIT_FAILURE,"Error while receiving messages from clients");
             break;
         }
-        printf("Message: \"%s\"\n\n",msg.value);
+        printf("%d messages: %s %s\n", msg.pid,COMMANDS_STR[msg.type],msg.value);
         handle_message(msg);
         sleep(1);
     }

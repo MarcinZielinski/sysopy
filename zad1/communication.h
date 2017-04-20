@@ -12,15 +12,16 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <errno.h>
 
 #define MAX_CLIENTS 4
 #define MAX_MSG_LEN 64
 
 typedef enum m_type {
-    LOGOUT,ECHO,UPPER,TIME,TERMINATE, ACCEPT, DECLINE, LOGIN, NOC // from 0 to 5;
+    LOGOUT,ECHO,UPPER,TIME,TERMINATE, LOGIN, ACCEPT, DECLINE, NOC // from 0 to 5;
 } m_type;
-static const enum m_type COMMANDS_ENUM[] = {LOGOUT,ECHO,UPPER,TIME,TERMINATE};
-static const char *COMMANDS_STR[] = {"LOGOUT","ECHO", "UPPER", "TIME", "TERMINATE"};
+static const enum m_type COMMANDS_ENUM[] = {LOGOUT,ECHO,UPPER,TIME,TERMINATE,LOGIN};
+static const char *COMMANDS_STR[] = {"LOGOUT","ECHO", "UPPER", "TIME", "TERMINATE", "LOGIN"};
 
 typedef struct message {
     enum m_type type;
