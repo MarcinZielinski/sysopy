@@ -247,10 +247,8 @@ int main() {
 
     printf("Server launched.\n");
 
+    struct message msg;
     while(1) {
-        struct msqid_ds stats;
-        struct message msg;
-        msgctl(server_qid, IPC_STAT, &stats);
         if(msgrcv(server_qid, &msg, MAX_MSG_SIZE, 0, 0) < 0) {
             exit_program(EXIT_FAILURE,"Error while receiving messages from clients");
             break;

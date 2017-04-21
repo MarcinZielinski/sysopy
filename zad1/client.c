@@ -16,6 +16,7 @@ void exit_handler() {
     msgctl(private_qid, IPC_RMID, NULL);
 }
 
+// I use this signal, because can't interrupt waiting fgets() otherway
 void sig_handler(int signum) {
     fprintf(stdout,"Server terminated. You've succesfully logged out.\n");
     exit(EXIT_SUCCESS);
@@ -92,7 +93,7 @@ int main() {
         }
 
         if(msg.type == NOC) {
-            fprintf(stderr,"Not valid message. Please pass type (ECHO, UPPER, TIME, TERMINATE) and after white-space character the message itself.\n");
+            fprintf(stderr,"Not valid message. Please pass type (ECHO, UPPER, TIME, TERMINATE, LOGOUT) and after white-space character the message itself.\n");
             continue;
         }
 
