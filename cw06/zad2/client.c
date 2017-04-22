@@ -10,7 +10,6 @@ mqd_t private_qid;
 mqd_t server_qid;
 char name[NAME_MAX];
 int logout = 0;
-struct sigevent sig;
 
 void exit_program(int status, char *exit_message) {
     if(status == EXIT_FAILURE) {
@@ -176,9 +175,10 @@ int main() {
     sigemptyset(&(sigact2.sa_mask));
     sigact2.sa_handler = sigint_handler;
     if(sigaction(SIGINT,&sigact2,NULL) == -1) {
-        exit_program(EXIT_FAILURE,"Couldn't set handler for sgrtmin signal");
+        exit_program(EXIT_FAILURE,"Couldn't set handler for sigint signal");
     }
 
+    struct sigevent sig;
     sig.sigev_notify = SIGEV_SIGNAL;
     sig.sigev_signo = SIGRTMIN;
     if(mq_notify(private_qid,&sig) == -1) { // prepare for getting responses from server
