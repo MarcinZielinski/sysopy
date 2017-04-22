@@ -97,7 +97,7 @@ void handle_logout(struct message msg) {
     }
     struct message response;
     response.pid = getpid();
-    strcpy(response.value,"You've succesfully logged out");
+    strcpy(response.value,"You've successfully logged out");
     response.type = LOGOUT;
     if(msgsnd(client_qid,&response,MAX_MSG_SIZE,0) != 0) {
         fprintf(stderr,"Couldn't send message to %d: %s\n",client_pid,strerror(errno));

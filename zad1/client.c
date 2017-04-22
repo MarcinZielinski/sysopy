@@ -83,7 +83,7 @@ int main() {
             fprintf(stderr,"Not valid message. Please pass type (ECHO, UPPER, TIME, TERMINATE, LOGOUT) and after white-space character the message itself.\n");
             continue;
         }
-        if(p[strlen(p)-1]=='\n') p[strlen(p)-1] = '\0';  // this is a case when TIME is used as a single command
+        if(p[strlen(p)-1]=='\n') p[strlen(p)-1] = '\0';  // this is a case when TIME (or LOGOUT/TERMINATE) is used as a single command
         strcpy(type,p);
 
         for(int i=0;i<sizeof(COMMANDS_STR)/sizeof(COMMANDS_STR[0]) - 1;++i) { // -1 because we do not want clients to pass LOGIN type
