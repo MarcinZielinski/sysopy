@@ -58,7 +58,8 @@ void rest() {
 
 void make_cut(int client_pid) {
     printf("%zu BARBER: Started cutting %d\n", get_time(), client_pid);
-    kill(client_pid,SIGRTMIN);
+    //kill(client_pid,SIGRTMIN);
+    give_semaphore(sem_id,CUT);
     printf("%zu BARBER: Finished cutting %d\n", get_time(), client_pid);
 }
 
@@ -79,13 +80,14 @@ int main(int argc, char** argv) { // N - amount of chairs in waiting room
     key_t key = ftok(FTOK_PATH,FTOK_ID);
 
 
-    sem_id = semget(key, 3, IPC_CREAT | 0600);
+    sem_id = semget(key, 4, IPC_CREAT | 0600);
     if(sem_id == -1) exit_program(EXIT_FAILURE, "Semaphore creating error");
 
 
     if(semctl(sem_id,BARBER,SETVAL,0) == -1 ||
     semctl(sem_id,FIFO,SETVAL,1) ||
-    semctl(sem_id,CLIENT,SETVAL,1))
+    semctl(sem_id,CLIENT,SETVAL,1) ||
+    semctl(sem_id,CUT,SETVAL,0))
         exit_program(EXIT_FAILURE, "Error while initializing the semaphores value");
     //int fifo_id = msgget(key, IPC_CREAT | 0600);
     shm_id = shmget(key, (N+4)*sizeof(pid_t), IPC_CREAT | 0600);

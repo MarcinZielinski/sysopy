@@ -19,6 +19,7 @@
 #define BARBER 0
 #define FIFO 1
 #define CLIENT 2
+#define CUT 3
 
 static const char* FTOK_PATH = ".";  // the key
 static const int FTOK_ID = 'p';   // and this id

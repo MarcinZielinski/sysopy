@@ -15,6 +15,6 @@ __time_t get_time() {
     struct timespec time;
     if (clock_gettime(CLOCK_MONOTONIC, &time) == -1)
         exit_program(EXIT_FAILURE,"Get time problem");
-    return time.tv_sec*(int)1e6 + time.tv_nsec/1000;
+    return time.tv_nsec/1000;
 }
 

@@ -32,7 +32,7 @@ int try_to_seat() {
     if(barber_semval == 0) {    // if barber sleeping
         printf("%zu, %d CLIENT: Barber is sleeping. Let's wake him up.\n", get_time(), getpid());
         give_semaphore(sem_id,BARBER); // wake him up
-        give_semaphore(sem_id,BARBER); // WAKE HIM MORE UP
+        give_semaphore(sem_id,BARBER); // WAKE HIM MORE UP (indicates that barber is working - let to know it to the others)
         fifo_sit_on_chair(shm_tab,getpid()); // sit on chair
         status = 0;
         // and give him the fifo semaphore
@@ -54,13 +54,13 @@ int try_to_seat() {
 int visit_barber() {
 
     while(actual_cuts < S) {
-        take_semaphore(sem_id,CLIENT);
+        //take_semaphore(sem_id,CLIENT);
         //printf("%zu, %d CLIENT: Took client semaphore.\n", get_time(), getpid());
         int res = try_to_seat();
-        give_semaphore(sem_id,CLIENT);
+        //give_semaphore(sem_id,CLIENT);
         if(res == 0) {
             //give_semaphore(sem_id,CLIENT);
-            while(!cut_received);
+            take_semaphore(sem_id,CUT);
             cut_received = 0;
             ++actual_cuts;
             printf("%zu, %d CLIENT: Got pretty cut.\n", get_time(), getpid());
@@ -86,8 +86,8 @@ int main(int argc, char **argv) { // N - number of clients to create and S - num
     }
     atexit(exit_handler);
 
-    N = 5;
-    S = 2;
+    N = 20;
+    S = 5;
     //TODO: uncomment N = atoi(argv[2]); S = atoi(argv[3]);
 
     struct sigaction sigact;
