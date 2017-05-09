@@ -28,7 +28,6 @@ void free_res() {
 
 void exit_handler() {
     free_res();
-    // TODO: inform clients about closing the barber shop
 }
 
 void sigint_handler(int signum) {
@@ -47,49 +46,25 @@ int set_sigint_handling() {
 
 int terminate = 0;
 
-void check_waiting_room() {
-    printf("%zu BARBER. Checking waiting room.",get_time());
-
-}
-
-void rest() {
-
-}
-
 void make_cut(int client_pid) {
     printf("%zu BARBER: Started cutting %d\n", get_time(), client_pid);
-    //kill(client_pid,SIGRTMIN);
     give_semaphore(sem_id,CUT);
+    //kill(client_pid, SIGRTMIN);
     printf("%zu BARBER: Finished cutting %d\n", get_time(), client_pid);
 }
 
-int main(int argc, char** argv) { // N - amount of chairs in waiting room
-    if(argc != 2) {
-        //TODO: uncomment this exit_program(EXIT_FAILURE, "Bad number of arguments! Pass the number of chairs you want to be in waiting room");
-    }
-
-    N = 3;
-    //TODO: uncomment this N = atoi(argv[1]);
-
-    atexit(exit_handler);
-
-    if(set_sigint_handling() == -1) {
-        exit_program(EXIT_FAILURE, "Error while setting the sigint handler");
-    }
-
+void init_res() {
     key_t key = ftok(FTOK_PATH,FTOK_ID);
-
 
     sem_id = semget(key, 4, IPC_CREAT | 0600);
     if(sem_id == -1) exit_program(EXIT_FAILURE, "Semaphore creating error");
 
-
     if(semctl(sem_id,BARBER,SETVAL,0) == -1 ||
-    semctl(sem_id,FIFO,SETVAL,1) ||
-    semctl(sem_id,CLIENT,SETVAL,1) ||
-    semctl(sem_id,CUT,SETVAL,0))
+       semctl(sem_id,FIFO,SETVAL,1) ||
+       semctl(sem_id,CLIENT,SETVAL,1) ||
+       semctl(sem_id,CUT,SETVAL,0))
         exit_program(EXIT_FAILURE, "Error while initializing the semaphores value");
-    //int fifo_id = msgget(key, IPC_CREAT | 0600);
+
     shm_id = shmget(key, (N+4)*sizeof(pid_t), IPC_CREAT | 0600);
     if(shm_id == -1)
         exit_program(EXIT_FAILURE, "Error while creating shared memory");
@@ -99,11 +74,27 @@ int main(int argc, char** argv) { // N - amount of chairs in waiting room
         exit_program(EXIT_FAILURE, "Error while getting address of shared memory");
 
     fifo_init(shm_tab,N);
+}
+
+int main(int argc, char** argv) { // N - amount of chairs in waiting room
+    if(argc != 2) {
+        exit_program(EXIT_FAILURE, "Bad number of arguments! Pass the number of chairs you want to be in waiting room");
+    }
+    atexit(exit_handler);
+    set_sigint_handling();
+
+    N = atoi(argv[1]);
+
+    if(set_sigint_handling() == -1) {
+        exit_program(EXIT_FAILURE, "Error while setting the sigint handler");
+    }
+
+    init_res(); // initialize every resource
+
     int client;
 
     printf("%zu BARBER: Going for a nap.. \n", get_time());
     while(!terminate) {
-        //check_waiting_room();
         take_semaphore(sem_id,BARBER); // sleep
         take_semaphore(sem_id,FIFO); // waiting for fifo, to take client
         client = fifo_get_client_on_chair(shm_tab);
@@ -113,7 +104,6 @@ int main(int argc, char** argv) { // N - amount of chairs in waiting room
         while(1){
             take_semaphore(sem_id,FIFO);
             client = fifo_pop(shm_tab);
-            //printf("%zu CLIENT: %d BARBER: .. \n", get_time(), client);
             if(client!=-1){
                 make_cut(client);
                 give_semaphore(sem_id,FIFO);
