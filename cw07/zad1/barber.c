@@ -2,10 +2,6 @@
 // Created by Mrz355 on 28.04.17.
 //
 
-
-#include <bits/time.h>
-#include <time.h>
-#include <sys/stat.h>
 #include "communication.h"
 
 

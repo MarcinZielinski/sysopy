@@ -8,24 +8,24 @@
 #include <signal.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <sys/stat.h>
-#include <sys/shm.h>
-#include <sys/msg.h>
-#include <sys/ipc.h>
-#include <sys/sem.h>
-#include <wait.h>
-#include <time.h>
 #include <unistd.h>
+#include <wait.h>
+#include <sys/mman.h>
+#include <time.h>
+#include <sys/stat.h>
+#include <semaphore.h>
+#include <fcntl.h>
 #include "util.c"
-#include "semaphores.c"
 #include "fifo.c"
 
 #define BARBER 0
 #define FIFO 1
-#define CLIENT 2
-#define CUT 3
+#define CUT 2
 
-static const char* FTOK_PATH = ".";  // the key
-static const int FTOK_ID = 'p';   // and this id
+static const char* BARBER_STR = "BARBER";
+static const char* FIFO_STR = "FIFO";
+static const char* CUT_STR = "CUT";
+
+static const char* MEMORY_STR = "MEMORY";
 
 #endif //CW07_COMMUNICATION_H

@@ -2,17 +2,14 @@
 // Created by Mrz355 on 28.04.17.
 //
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <wait.h>
 #include "communication.h"
+
 
 int N,S;
 int sem_id;
 int *shm_tab;
 int actual_cuts = 0;
-sigset_t mask;
+//sigset_t mask;
 
 int try_to_seat() {
     int status;
@@ -46,7 +43,7 @@ int try_to_seat() {
 int visit_barber() {
 
     while(actual_cuts < S) {
-        //take_semaphore(sem_id,CLIENT);
+        //take_semaphore(sem_id,CLIENT);    // synchronizing clients' access to barber shop - may be not used
         int res = try_to_seat();
         //give_semaphore(sem_id,CLIENT);
         if(res == 0) {
@@ -74,6 +71,8 @@ int set_sigint_handling() {
     sig.sa_handler = sigint_handler;
     return sigaction(SIGINT, &sig, NULL);
 }
+// This commented code throughout my program is solving the problem with signals.
+// I'm aware that semaphores don't always queue their access order, but the real-time signals are queued, that's why I left this solution.
 //
 //void sigrtmin_handler(int signum) {
 //
