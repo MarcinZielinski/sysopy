@@ -11,17 +11,11 @@
 size_t k;
 int file;
 char* word;
-//FILE *file;
 int N;
-pthread_mutex_t mutex;
+pthread_t* threads;
 
 struct thread_args {
     int id;
-};
-
-struct data {
-    int id;
-    char test[1024];
 };
 
 void exit_program(int status, char* message) {
@@ -62,28 +56,14 @@ void *parallel_reader(void *arg) {
     int jump = tmp->id;
     long multiplier = RECORDSIZE*jump*k;
     printf("%zu, file_desc= %d, arg_passed = %d\n",pthread_self(),file,jump);
-    //lseek(file,jump,SEEK_SET);
 
-    int bytes_read;
-    while((bytes_read=pread(file,buffer,RECORDSIZE*k,multiplier) > 0)) {
-    //while(1) {
-        //printf("Czytam: %ld\n",multiplier);
-        //fseek(file,multiplier,SEEK_SET);
-        //if((bytes_read = fread(buffer,RECORDSIZE,k,file)) <= 0) {
-        //    break;
-       //}
-
-        //printf("%zu, I've read %zu bytes\n",pthread_self(),bytes_read);
-        //pthread_mutex_lock(&mutex);
+    while(pread(file,buffer,RECORDSIZE*k,multiplier) > 0) {
         if((id = seek_for_word(buffer)) != -1) {
             printf("Found the word %s! Record id: %d, thread id: %zu\n",word,id,pthread_self());//TODO: consider using pthread_getthreadid_np();
         }
-        //pthread_mutex_unlock(&mutex);
 
         multiplier += (N*RECORDSIZE*k);
-        //lseek(file,jump,SEEK_CUR);
     }
-    //printf("%s\n",buffer);
     //printf("The end of my life :(\n");
     free(tmp);
     return 0;
@@ -106,30 +86,20 @@ int main(int argc, char ** argv) {
     if((file = open(filename, O_RDONLY)) == -1) {
         exit_program(EXIT_FAILURE, "Couldn't open the file to read records from");
     }
-    //if((file = fopen(filename,"r"))==NULL)
-     //   exit_program(EXIT_FAILURE, "Couldn't open the file to read records from");
-
-    //char buffer[1024*k];
-    //size_t bytes_read = fread(buffer,RECORDSIZE,k,file);
-    //printf("Read: %zu, \n%s\n",bytes_read,buffer);
-
-    //char *p = strtok(buffer,SEPARATOR);
-    //p = strtok(NULL,"\n");
     signal(SIGINT,sigint_handler);
 
-    pthread_mutex_init(&mutex,NULL);
     printf("Let's create some threads...\n");
-    pthread_t tid;
+    threads = malloc(sizeof(int)*N);
     for(int i=0;i<N;++i) {
         struct thread_args *args= malloc(sizeof(struct thread_args));
         args->id = i;
-        if(pthread_create(&tid,NULL,parallel_reader,args)) {
+        if(pthread_create(&threads[i],NULL,parallel_reader,args)) {
             free(args);
+            exit_program(EXIT_FAILURE,"Failed to create thread");
         }
     }
 
     pause();
-    pthread_mutex_destroy(&mutex);
 
     return 0;
 }
