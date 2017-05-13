@@ -4,18 +4,13 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
-#include <signal.h>
-#include <semaphore.h>
 #include "finals.h"
 
-const char* SEM_STR = "SEM";
 size_t k;
 int file;
 char* word;
 int N;
 pthread_t* threads;
-volatile sig_atomic_t *thread_complete;
-sem_t *sem;
 
 struct thread_args {
     int id;
@@ -54,46 +49,21 @@ int seek_for_word(char *buffer) {
 }
 
 void *parallel_reader(void *arg) {
-    pthread_setcancelstate(PTHREAD_CANCEL_DISABLE,NULL);
-    pthread_setcanceltype(PTHREAD_CANCEL_DEFERRED,NULL);
+    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE,NULL);
+    pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS,NULL);
     int id;
     char buffer[1024*k];
     struct thread_args *tmp = arg;
     int jump = tmp->id;
     long multiplier = RECORDSIZE*jump*k;
+    printf("%zu, file_desc= %d, arg_passed = %d\n",pthread_self(),file,jump);
 
     while(pread(file,buffer,RECORDSIZE*k,multiplier) > 0) {
         if((id = seek_for_word(buffer)) != -1) {
-            sem_wait(sem); // found the word - block the other threads from unwanted exiting/writing down their word
-            pthread_setcancelstate(PTHREAD_CANCEL_ENABLE,NULL);
-            pthread_testcancel(); // mutex_lock isn't cancellation point, unfortunately
-            pthread_setcancelstate(PTHREAD_CANCEL_DISABLE,NULL);
             printf("Found the word %s! Record id: %d, thread id: %zu\n",word,id,pthread_self());
-            pthread_t self_id = pthread_self();
-            for(int i=0;i<N;++i) {
-                if(threads[i] != self_id) {
-                    int err;
-                    if(!thread_complete[i]) {
-                        if ((err = pthread_cancel(threads[i])) != 0) {
-                            fprintf(stderr, "Error while cancelling thread %zu: %s\n", threads[i], strerror(err));
-                            break;
-                        }
-                    }
-                }
-            }
-            for(int i =0;i<N;++i) {
-                sem_post(sem);
-            }
-            pthread_exit(EXIT_SUCCESS);
         }
-        pthread_setcancelstate(PTHREAD_CANCEL_ENABLE,NULL);
-        pthread_testcancel();
-        pthread_setcancelstate(PTHREAD_CANCEL_DISABLE,NULL);
         multiplier += (N*RECORDSIZE*k);
     }
-    sem_wait(sem); // obtain semaphore to check if another thread isn't cancelling this thread right now
-    thread_complete[jump] = 1;
-    sem_post(sem);
     return 0;
 }
 
@@ -104,18 +74,12 @@ void exit_handler() {
     if(threads != NULL) {
         free(threads);
     }
-    if(thread_complete != NULL) {
-        free((void *) thread_complete);
-    }
     if(args !=NULL) {
         for (int i = 0; i < N; ++i) {
             if (args[i] != NULL)
                 free(args[i]);
         }
         free(args);
-    }
-    if(sem_unlink(SEM_STR) == -1) {
-        perror("Error while deleting semaphores");
     }
 }
 
@@ -137,13 +101,8 @@ int main(int argc, char ** argv) {
     if((file = open(filename, O_RDONLY)) == -1) {
         exit_program(EXIT_FAILURE, "Couldn't open the file to read records from");
     }
-    sem = sem_open(SEM_STR, O_CREAT | O_RDWR | O_CREAT, 0600, 1);
-    if(sem == SEM_FAILED) {
-        exit_program(EXIT_FAILURE, "Failed to create semaphore");
-    }
 
     threads = malloc(sizeof(int)*N);
-    thread_complete = calloc((size_t) N, sizeof(sig_atomic_t));
     args = malloc(sizeof(struct thread_args*)*N);
     for(int i=0;i<N;++i) {
         args[i] = malloc(sizeof(struct thread_args));
@@ -151,13 +110,7 @@ int main(int argc, char ** argv) {
         if(pthread_create(&threads[i],NULL,parallel_reader,args[i])) {
             exit_program(EXIT_FAILURE,"Failed to create thread");
         }
+        pthread_detach(threads[i]);
     }
-
-    for(int i=0;i<N;++i) {
-        if(pthread_join(threads[i],NULL)) {
-            exit_program(EXIT_FAILURE,"Threads didn't end successfully");
-        }
-    }
-
-    return 0;
+    pthread_exit(0);
 }

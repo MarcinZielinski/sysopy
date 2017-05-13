@@ -59,7 +59,6 @@ void *parallel_reader(void *arg) {
     struct thread_args *tmp = arg;
     int jump = tmp->id;
     long multiplier = RECORDSIZE*jump*k;
-    printf("%zu, file_desc= %d, arg_passed = %d\n",pthread_self(),file,jump);
 
     while(pread(file,buffer,RECORDSIZE*k,multiplier) > 0) {
         if((id = seek_for_word(buffer)) != -1) {
