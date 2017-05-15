@@ -56,7 +56,6 @@ void *parallel_reader(void *arg) {
     struct thread_args *tmp = arg;
     int jump = tmp->id;
     long multiplier = RECORDSIZE*jump*k;
-    printf("%zu, file_desc= %d, arg_passed = %d\n",pthread_self(),file,jump);
 
     while(pread(file,buffer,RECORDSIZE*k,multiplier) > 0) {
         if((id = seek_for_word(buffer)) != -1) {
@@ -104,13 +103,19 @@ int main(int argc, char ** argv) {
 
     threads = malloc(sizeof(int)*N);
     args = malloc(sizeof(struct thread_args*)*N);
+
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr,PTHREAD_CREATE_DETACHED);
+
     for(int i=0;i<N;++i) {
         args[i] = malloc(sizeof(struct thread_args));
         args[i]->id = i;
-        if(pthread_create(&threads[i],NULL,parallel_reader,args[i])) {
+        if(pthread_create(&threads[i],&attr,parallel_reader,args[i])) {
             exit_program(EXIT_FAILURE,"Failed to create thread");
         }
-        pthread_detach(threads[i]);
     }
+
+    pthread_attr_destroy(&attr);
     pthread_exit(0);
 }
