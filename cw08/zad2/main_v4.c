@@ -83,7 +83,7 @@ void init_mask() {
     sigemptyset(&mask);
     sigaddset(&mask, SIGUSR1);
     sigaddset(&mask, SIGTERM);
-    sigprocmask(SIG_BLOCK,&mask,NULL);
+    pthread_sigmask(SIG_BLOCK,&mask,NULL);
 }
 
 void signal_handler(int signum) {
@@ -157,9 +157,6 @@ int main(int argc, char ** argv) {
     }
     word = argv[4]; // eg. "pellentesque";
 
-    //init_signals();
-    init_mask();
-
     if((file = open(filename, O_RDONLY)) == -1) {
         exit_program(EXIT_FAILURE, "Couldn't open the file to read records from");
     }
@@ -169,6 +166,8 @@ int main(int argc, char ** argv) {
 
     threads = malloc(sizeof(int)*N);
     args = malloc(sizeof(struct thread_args*)*N);
+
+    init_mask();
 
     for(int i=0;i<N;++i) {
         args[i] = malloc(sizeof(struct thread_args));

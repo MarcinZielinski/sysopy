@@ -82,7 +82,7 @@ void init_mask() {
     sigemptyset(&mask);
     sigaddset(&mask, SIGUSR1);
     sigaddset(&mask, SIGTERM);
-    sigprocmask(SIG_BLOCK,&mask,NULL);
+    pthread_sigmask(SIG_BLOCK,&mask,NULL);
 }
 
 int get_signal(int n) {
