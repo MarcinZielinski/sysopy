@@ -13,4 +13,8 @@ struct reader_args {
     int id;
 };
 
+struct writer_args {
+    int id;
+};
+
 #endif //CW09_FIFO_SYNC_H
