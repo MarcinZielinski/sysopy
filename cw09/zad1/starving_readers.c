@@ -20,6 +20,14 @@ void exit_program(int status, char *msg) {
 const char* sigint_received = "SIGINT received.\n";
 void sigint_handler(int signum) {
     write(STDOUT_FILENO,sigint_received, strlen(sigint_received));
+
+    int res = sem_destroy(&read_semaphore);
+    res+=sem_destroy(&end_read_semaphore);
+    res+=sem_destroy(&write_semaphore);
+    if(res < 0) {
+        fprintf(stderr,"Error while destroying semaphores");
+    }
+
     exit(0);
 }
 
