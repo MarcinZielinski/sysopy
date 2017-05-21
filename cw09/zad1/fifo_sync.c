@@ -1,9 +1,3 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <pthread.h>
-#include <signal.h>
-#include "fifo.c"
 #include "fifo_sync.h"
 
 int R, W; // R - number of readers, W - number of writers
@@ -25,18 +19,6 @@ void init_mutexes_and_conds() {
     parent_cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
 }
 
-int destroy_mutexes_and_conds() {
-    int res = 0;
-    res+=pthread_mutex_destroy(&mutex);
-    res+=pthread_mutex_destroy(&end_of_work_mutex);
-    res+=pthread_mutex_destroy(&parent);
-    res+=pthread_mutex_destroy(&fifo_mutex);
-    res+=pthread_cond_destroy(&cond);
-    res+=pthread_cond_destroy(&end_of_work_cond);
-    res+=pthread_cond_destroy(&parent_cond);
-    return res;
-}
-
 void exit_program(int status, char *msg) {
     if(status == EXIT_FAILURE) {
         perror(msg);
@@ -48,23 +30,116 @@ void exit_program(int status, char *msg) {
 
 void exit_handler() {
     fifo_destroy(fifo);
-    if(destroy_mutexes_and_conds()) {
-        fprintf(stderr,"Error while destroying mutexes and conditional variables");
+}
+
+void reading_l(int divider) {
+    int count = 0;
+    char *indexes_str = malloc(sizeof(char) * BUFFER_SIZE);
+    char *numbers_str = malloc(sizeof(char) * BUFFER_SIZE);
+    char *indexes = indexes_str;
+    char *numbers = numbers_str;
+
+    for(int i = 0;i<TAB_SIZE;++i) {
+        if(tab[i] % divider == 0) {
+            int to_move = sprintf(indexes_str,"%d ",i);
+            indexes_str += to_move;
+            to_move = sprintf(numbers_str,"%d ", tab[i]);
+            numbers_str += to_move;
+            ++count;
+        }
     }
+    printf("READER id: %zu, finished. Found numbers: %s at the indexes: %s (total: %d)\n",pthread_self(),numbers,indexes,count);
+    fflush(stdin);
+    free(indexes);
+    free(numbers);
 }
 
-void sigint_handler(int signum) {
-    shutdown = 1;
+void writing_l() {
+    char *indexes_str = malloc(sizeof(char) * BUFFER_SIZE);
+    char *numbers_str = malloc(sizeof(char) * BUFFER_SIZE);
+    char *indexes = indexes_str;
+    char *numbers = numbers_str;
+
+    int N = rand()%TAB_SIZE;
+    for(int n = 0 ; n <= N ; ++n) {
+        int index = rand()%2 ? n : -1;
+        if(index == -1) continue;
+        int value = rand()%TAB_SIZE;
+        tab[index] = value;
+
+        int to_move =sprintf(indexes_str,"%d ",index);
+        indexes_str += to_move;
+        to_move = sprintf(numbers_str,"%d ",value);
+        numbers_str += to_move;
+    }
+    printf("WRITER id: %zu, finished. Changed to numbers: %s at the indexes: %s\n",pthread_self(), numbers,indexes);
+    fflush(stdin);
+    free(indexes);
+    free(numbers);
 }
 
-void reading() {
-    // TODO: reader stuff
-    printf("I'm reader!\n");
+void reading(int divider) {
+    if(verbose) {
+        reading_l(divider);
+        return;
+    }
+    int count = 0;
+    for(int i = 0;i<TAB_SIZE;++i) {
+        if(tab[i] % divider == 0) {
+            ++count;
+        }
+    }
+    printf("READER, finished. Found numbers: %d\n",count);
+    fflush(stdin);
 }
 
 void writing() {
-    printf("I'm writer!\n");
-    // TODO: writer stuff
+    if(verbose) {
+        writing_l();
+        return;
+    }
+    for(int n = rand()%TAB_SIZE ; n >= 0 ; --n) {
+        tab[rand()%TAB_SIZE] = rand();
+    }
+    printf("WRITER, finished.\n");
+    fflush(stdin);
+}
+
+void wait_for_permission(struct thread_info info) {
+    // Push myself to the fifo
+    pthread_mutex_lock(&fifo_mutex);
+    fifo_push(fifo, info);
+    pthread_mutex_unlock(&fifo_mutex);
+
+    // Lock the waiting-for-handle mutex
+    pthread_mutex_lock(&mutex);
+
+    // Signal the parent: "I'm entering the waiting state, handle me parent, after I release waiting-for-handle mutex!"
+    pthread_mutex_lock(&parent);
+    ++go_parent;
+    pthread_cond_signal(&parent_cond);
+    pthread_mutex_unlock(&parent);
+
+    while (!go_ahead[info.tid]) {
+        // Enter the waiting state, free the waiting-for-handle mutex for other threads and parent
+        pthread_cond_wait(&cond, &mutex);
+    }
+    // You were released from the waiting state, you're free to work!
+    pthread_mutex_unlock(&mutex);
+}
+
+void inform_about_finish(struct thread_info info) {
+    // Work finished signal the parent about that
+    pthread_mutex_lock(&end_of_work_mutex);
+    if(info.function == WRITER) {
+        writer_busy = 0;
+    } else {
+        --readers;
+        if(readers == 0) writer_busy = 0;
+    }
+    go_ahead[info.tid] = 0;
+    pthread_cond_signal(&end_of_work_cond);
+    pthread_mutex_unlock(&end_of_work_mutex);
 }
 
 void *reader_handler(void *args) {
@@ -76,38 +151,11 @@ void *reader_handler(void *args) {
 
     int divider = r_args->divider;
 
-    while(!shutdown) {
-        // Push myself to the fifo
-        pthread_mutex_lock(&fifo_mutex);
-        fifo_push(fifo, info);
-        pthread_mutex_unlock(&fifo_mutex);
-
-        // Lock the waiting-for-handle mutex
-        pthread_mutex_lock(&mutex);
-
-        // Signal the parent: "I'm entering the waiting state, handle me parent, after I release waiting-for-handle mutex!"
-        pthread_mutex_lock(&parent);
-        ++go_parent;
-        pthread_cond_signal(&parent_cond);
-        pthread_mutex_unlock(&parent);
-
-        while (!go_ahead[info.tid]) {
-            // Enter the waiting state, free the waiting-for-handle mutex for other threads and parent
-            pthread_cond_wait(&cond, &mutex);
-        }
-        // You were released from the waiting state, you're free to work!
-        pthread_mutex_unlock(&mutex);
-        reading();
-        // Work finished signal the parent about that
-        pthread_mutex_lock(&end_of_work_mutex);
-        --readers;
-        go_ahead[info.tid] = 0;
-        if (readers == 0) writer_busy = 0;
-        pthread_cond_signal(&end_of_work_cond);
-        pthread_mutex_unlock(&end_of_work_mutex);
+    while(1) {
+        wait_for_permission(info);
+        reading(divider);
+        inform_about_finish(info);
     }
-
-    return 0;
 }
 
 void *writer_handler(void *args) {
@@ -117,77 +165,83 @@ void *writer_handler(void *args) {
     info.tid = w_args->id;
     info.function = WRITER;
 
-    while(!shutdown) {
-        // Push myself to the fifo
-        pthread_mutex_lock(&fifo_mutex);
-        fifo_push(fifo, info);
-        pthread_mutex_unlock(&fifo_mutex);
-
-        // Lock the waiting-for-handle mutex
-        pthread_mutex_lock(&mutex);
-
-        // Signal the parent: "I'm entering the waiting state, handle me parent, after I release waiting-for-handle mutex!"
-        pthread_mutex_lock(&parent);
-        ++go_parent;
-        pthread_cond_signal(&parent_cond);
-        pthread_mutex_unlock(&parent);
-
-        while (!go_ahead[info.tid]) {
-            // Enter the waiting state, free the waiting-for-handle mutex for other threads and parent
-            pthread_cond_wait(&cond, &mutex);
-        }
-        // You were released from the waiting state, you're free to work!
-        pthread_mutex_unlock(&mutex);
-
+    while(1) {
+        wait_for_permission(info);
         writing();
-        // Work finished signal the parent about that
-        pthread_mutex_lock(&end_of_work_mutex);
-        writer_busy = 0;
-        go_ahead[info.tid] = 0;
-        pthread_cond_signal(&end_of_work_cond);
-        pthread_mutex_unlock(&end_of_work_mutex);
+        inform_about_finish(info);
     }
+}
 
-    return 0;
+const char* sigint_received = "SIGINT received.\n";
+void sigint_handler(int signum) {
+    write(STDOUT_FILENO,sigint_received, strlen(sigint_received));
+    shutdown = 1;
 }
 
 int main(int argc, char **argv) {
     atexit(exit_handler);
-    signal(SIGINT,sigint_handler);
+    srand((unsigned int)time(NULL));
+
+    R = rand()%TAB_SIZE+1;
+    W = rand()%TAB_SIZE+1;
+
     if(argc == 2) {
-        if(strcmp(argv[2],"-i") == 0) {
+        if(strcmp(argv[1],"-i") == 0) {
             verbose = 1;
         }
+    } else if(argc == 3) {
+        R = atoi(argv[1]);
+        W = atoi(argv[2]);
+    } else if(argc == 4) {
+        if(strcmp(argv[1],"-i") == 0) {
+            verbose = 1;
+        }
+        R = atoi(argv[1]);
+        W = atoi(argv[2]);
     }
 
-    R = 5; // TODO: change it to
-    W = 2; // TODO: some rand();
+    struct sigaction sa;
+    sigemptyset(&(sa.sa_mask));
+    sa.sa_flags=0;
+    sa.sa_handler = sigint_handler;
+    if(sigaction(SIGINT,&sa,NULL) == -1) {
+        exit_program(EXIT_FAILURE, "Error while setting SIGINT handler");
+    }
 
     go_ahead = malloc(sizeof(pthread_t) * (R+W));
 
     fifo = fifo_init();
 
-    pthread_t tid;
     pthread_attr_t attr;
-
     pthread_attr_init(&attr);
     pthread_attr_setdetachstate(&attr,PTHREAD_CREATE_DETACHED);
 
     init_mutexes_and_conds();
 
+    pthread_t *thread_ids = malloc(sizeof(pthread_t)*(R+W));
     struct reader_args **r_args = malloc(sizeof(struct reader_args*) * R);
     struct writer_args **w_args = malloc(sizeof(struct writer_args*) * W);
 
-    for(int i = 0;i<R;++i) {
-        r_args[i] = malloc(sizeof(struct reader_args));
-        r_args[i]->id = i;
-        r_args[i]->divider = 4; // TODO: insert rand() here
-        pthread_create(&tid,&attr,reader_handler,r_args[i]);
-    }
-    for(int i = 0;i<W;++i) {
-        w_args[i] = malloc(sizeof(struct writer_args));
-        w_args[i]->id = i+R;
-        pthread_create(&tid,&attr,writer_handler,w_args[i]);
+    int r=R,w=W;
+
+    for(int i = 0;i<(R+W);++i) {
+        if(r) {
+            r_args[i] = malloc(sizeof(struct reader_args));
+            r_args[i]->id = i;
+            r_args[i]->divider = 4;
+            if(pthread_create(&thread_ids[i], &attr, reader_handler, r_args[i])) {
+                exit_program(EXIT_FAILURE,"Error while creating reader thread");
+            }
+            --r;
+        }
+        if(w) {
+            w_args[i] = malloc(sizeof(struct writer_args));
+            w_args[i]->id = i + R;
+            if(pthread_create(&thread_ids[i+R], &attr, writer_handler, w_args[i])) {
+                exit_program(EXIT_FAILURE,"Error while creating writing thread");
+            }
+            --w;
+        }
     }
 
     struct thread_info info;
@@ -239,5 +293,16 @@ int main(int argc, char **argv) {
         }
     }
 
-    pthread_exit(0);
+    for(int i =0;i<(W+R); ++i) {
+        pthread_cancel(thread_ids[i]);
+    }
+    free(thread_ids);
+    for(int i = 0; i<W; ++i) {
+        free(w_args[i]);
+    } for(int i = 0 ; i<R; ++i) {
+        free(r_args[i]);
+    } free(w_args);
+    free(r_args);
+
+    exit(0);
 }
