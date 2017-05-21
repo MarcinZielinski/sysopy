@@ -1,6 +1,5 @@
 #include "fifo_sync.h"
 
-int R, W; // R - number of readers, W - number of writers
 int verbose;
 int shutdown;
 pthread_t *go_ahead;
@@ -182,8 +181,8 @@ int main(int argc, char **argv) {
     atexit(exit_handler);
     srand((unsigned int)time(NULL));
 
-    R = rand()%TAB_SIZE+1;
-    W = rand()%TAB_SIZE+1;
+    int R = rand()%TAB_SIZE+1;
+    int W = rand()%TAB_SIZE+1;
 
     if(argc == 2) {
         if(strcmp(argv[1],"-i") == 0) {
@@ -243,7 +242,6 @@ int main(int argc, char **argv) {
             --w;
         }
     }
-
     struct thread_info info;
     while(!shutdown) {
         // Wait for the signal from worker threads
