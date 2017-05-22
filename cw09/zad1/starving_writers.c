@@ -3,10 +3,11 @@
 //
 
 #include <semaphore.h>
-#include "starving_readers.h"
+#include "starving_writers.h"
 
 int verbose;
-sem_t read_semaphore, end_read_semaphore, write_semaphore;
+sem_t read_semaphore, write_semaphore;
+int readers;
 
 void exit_program(int status, char *msg) {
     if(status == EXIT_FAILURE) {
@@ -22,7 +23,6 @@ void sigint_handler(int signum) {
     write(STDOUT_FILENO,sigint_received, strlen(sigint_received));
 
     int res = sem_destroy(&read_semaphore);
-    res+=sem_destroy(&end_read_semaphore);
     res+=sem_destroy(&write_semaphore);
     if(res < 0) {
         fprintf(stderr,"Error while destroying semaphores");
@@ -59,8 +59,7 @@ void writing_l() {
     char *indexes = indexes_str;
     char *numbers = numbers_str;
 
-    int N = rand()%TAB_SIZE;
-    for(int n = 0 ; n <= N ; ++n) {
+    for(int n = 0 ; n <= TAB_SIZE ; ++n) {
         int index = rand()%2 ? n : -1;
         if(index == -1) continue;
         int value = rand()%TAB_SIZE;
@@ -108,7 +107,6 @@ void *reader_handler(void *args) {
     struct reader_args *r_args = (struct reader_args*) args;
     int divider = r_args->divider;
     free(args);
-    int readers = 0;
     while(1) {
         sem_wait(&read_semaphore);
 
@@ -118,12 +116,12 @@ void *reader_handler(void *args) {
         ++readers;
         sem_post(&read_semaphore);
         reading(divider);
-        sem_wait(&end_read_semaphore);
+        sem_wait(&read_semaphore);
         --readers;
         if (readers == 0) {
             sem_post(&write_semaphore);
         }
-        sem_post(&end_read_semaphore);
+        sem_post(&read_semaphore);
     }
 }
 
@@ -152,8 +150,8 @@ int main(int argc, char **argv) {
         if (strcmp(argv[1], "-i") == 0) {
             verbose = 1;
         }
-        R = atoi(argv[1]);
-        W = atoi(argv[2]);
+        R = atoi(argv[2]);
+        W = atoi(argv[3]);
     }
 
     struct sigaction sa;
@@ -171,12 +169,12 @@ int main(int argc, char **argv) {
 
     sem_init(&read_semaphore,0,1); // Initializing no-pshared semaphore with starting value 1
     sem_init(&write_semaphore,0,1);
-    sem_init(&end_read_semaphore,0,1);
 
     struct reader_args **r_args = malloc(sizeof(struct reader_args*)*R);
 
     int r=R, w=W;
-    for(int i = 0;i<(R+W);++i) {
+    int N = R>W ? R : W;
+    for(int i = 0;i<N;++i) {
         if(r) {
             r_args[i] = malloc(sizeof(struct reader_args));
             r_args[i]->divider = 4;

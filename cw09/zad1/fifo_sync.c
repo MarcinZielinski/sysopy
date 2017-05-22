@@ -59,8 +59,7 @@ void writing_l() {
     char *indexes = indexes_str;
     char *numbers = numbers_str;
 
-    int N = rand()%TAB_SIZE;
-    for(int n = 0 ; n <= N ; ++n) {
+    for(int n = 0 ; n < TAB_SIZE ; ++n) {
         int index = rand()%2 ? n : -1;
         if(index == -1) continue;
         int value = rand()%TAB_SIZE;
@@ -195,8 +194,8 @@ int main(int argc, char **argv) {
         if(strcmp(argv[1],"-i") == 0) {
             verbose = 1;
         }
-        R = atoi(argv[1]);
-        W = atoi(argv[2]);
+        R = atoi(argv[2]);
+        W = atoi(argv[3]);
     }
 
     struct sigaction sa;
