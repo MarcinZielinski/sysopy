@@ -276,8 +276,10 @@ int main(int argc, char **argv) {
         } else {
             pthread_mutex_lock(&end_of_work_mutex);
             // We've got a reader. Wait for writer to finish writing. Otherwise if no one is writing, launch the reader.
-            while (writer_busy) {
-                pthread_cond_wait(&end_of_work_cond, &end_of_work_mutex);
+            if(readers == 0) {
+                while (writer_busy) {
+                    pthread_cond_wait(&end_of_work_cond, &end_of_work_mutex);
+                }
             }
             ++readers;
             writer_busy = 1; // Writer cannot write right now! Because someone will be reading the data
