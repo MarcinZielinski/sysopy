@@ -118,21 +118,32 @@ void epoll_init() {
     error_check(epoll_ctl(efd,EPOLL_CTL_ADD,inet_fd,&ee),-1,"Error registering epoll to inet socket",1);
 }
 
-void logout(int fd) {
-    //TODO: logout procedure with mutex etc
+
+void close_client(int fd) {
+    pthread_mutex_lock(&mutex);
+    for (int i=0, j=0;i<actual_clients;++i,++j) {
+        if (clients[i] == fd) {
+            error_check(close(fd),-1,"Error while closing client",0);
+            --j;
+        } else {
+            clients[j] = clients[i];
+        }
+    }
+    --actual_clients;
+    printf("%d disconnected\n> ",fd);
+    fflush(stdout);
+    pthread_mutex_unlock(&mutex);
 }
 
 int is_event_invalid(struct epoll_event event) {
     int fd = event.data.fd;
-    if((event.events & EPOLLERR) || (event.events & EPOLLHUP)) {
+    if(event.events & EPOLLERR) {
         fprintf(stderr,"Event error\n");
-        if(fd!=unix_fd && fd!=inet_fd)
-            logout(fd);
         return -1;
     }
-    if(event.events & EPOLLRDHUP) { // client disconnected
+    if(event.events & EPOLLRDHUP || event.events & EPOLLHUP) { // client disconnected
         if(fd!=unix_fd && fd!=inet_fd)
-            logout(fd);
+            close_client(fd);
         return -1;
     }
     return 0;
@@ -166,19 +177,6 @@ int add_client(struct epoll_event event) {
     pthread_mutex_unlock(&mutex);
 
     return 0;
-}
-
-void close_client(int fd) {
-    pthread_mutex_lock(&mutex);
-    for (int i=0, j=0;i<actual_clients;++i,++j) {
-        if (clients[i] == fd) {
-            error_check(close(fd),-1,"Error while closing client",0);
-            --j;
-        } else {
-            clients[j] = clients[i];
-        }
-    }
-    pthread_mutex_unlock(&mutex);
 }
 
 int read_message(struct epoll_event event) {

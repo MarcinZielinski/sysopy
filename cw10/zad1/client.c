@@ -35,15 +35,11 @@ void exit_handler() {
     if (socket_fd != -1) {
         error_check(shutdown(socket_fd, SHUT_RDWR), -1, "Error shutdowning socket", 0);
         error_check(close(socket_fd), -1, "Error closing socket", 0);
-        if (protocol_family == AF_UNIX) {
-            error_check(unlink(addr), -1, "Error unlinking unix socket", 0);
-        }
     }
 }
 
 
 void logout() {
-    //TODO: logout procedure
     exit(EXIT_SUCCESS);
 }
 
@@ -169,9 +165,8 @@ int main(int argc, char **argv) {
         if (bytes_read == -1) {
             if (errno != EAGAIN && errno != EWOULDBLOCK) {
                 perror("Error receiving message from server");
-                //TODO: (2) I mean here
             }
-            continue; // TODO: (1) check if this shouldn't be higher
+            continue;
         }
 
         switch (msg.type) {
