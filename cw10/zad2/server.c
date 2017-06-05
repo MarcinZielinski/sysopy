@@ -131,17 +131,10 @@ void close_client(char *name) {
 }
 
 int is_event_invalid(struct epoll_event event) {
-    //int fd = event.data.fd;
     if(event.events & EPOLLERR) {
         fprintf(stderr,"Event error\n");
         return -1;
     }
-//    if(event.events & EPOLLRDHUP || event.events & EPOLLHUP) { // client disconnected
-//        if(fd!=unix_fd && fd!=inet_fd)
-//            close_client(fd);
-//        return -1;
-//    }
-
     return 0;
 }
 
@@ -200,9 +193,10 @@ int read_message(struct epoll_event event) {
                 pthread_mutex_unlock(&mutex);
                 break;
             case LOGIN:
-                printf("%d connected. Username: %s\n> ",event.data.fd,msg.msg.name);
                 if(add_client(addr, addr_size, msg) == -1) {
                     free(addr);
+                } else {
+                    printf("%d connected. Username: %s\n> ", event.data.fd, msg.msg.name);
                 }
                 break;
             case LOGOUT:

@@ -198,7 +198,7 @@ int read_message(struct epoll_event event) {
                 break;
             case PONG:
                 pthread_mutex_lock(&mutex);
-                    for(int i=0; i<actual_clients; i++){
+                for(int i=0; i<actual_clients; ++i){
                     if(clients[i].fd == event.data.fd) {
                         clients[i].pongs++;
                     }
@@ -206,6 +206,17 @@ int read_message(struct epoll_event event) {
                 pthread_mutex_unlock(&mutex);
                 break;
             case LOGIN:
+                pthread_mutex_lock(&mutex);
+                for(int i =0; i<actual_clients-1; ++i) {
+                    if(strcmp(clients[i].name,msg.msg.name)==0) {
+                        printf("User with the same username: %s, tried to login\n> ",msg.msg.name);
+                        pthread_mutex_unlock(&mutex);
+                        close_client(event.data.fd);
+                        return -1;
+                    }
+                }
+                strcpy(clients[actual_clients-1].name,msg.msg.name);
+                pthread_mutex_unlock(&mutex);
                 printf("%d connected. Username: %s\n> ",event.data.fd,msg.msg.name);
                 break;
             case LOGOUT:

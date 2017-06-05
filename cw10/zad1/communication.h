@@ -46,6 +46,7 @@ typedef struct result {
 
 typedef struct client {
     int fd;
+    char name[MAX_NAME_LEN];
     int pings;
     int pongs;
 } client_t;
