@@ -46,12 +46,10 @@ void exit_handler() {
         error_check(close(efd),-1,"Error closing epoll",0);
     }
     if(unix_fd != -1) {
-        error_check(shutdown(unix_fd, SHUT_RDWR),-1,"Error shutdowning unix socket",0);
         error_check(close(unix_fd),-1,"Error closing unix socket",0);
         error_check(unlink(unix_path),-1,"Error unlinking unix socket",0);
     }
     if(inet_fd != -1) {
-        error_check(shutdown(inet_fd, SHUT_RDWR),-1,"Error shutdowning INET socket",0);
         error_check(close(inet_fd),-1,"Error closing INET socket",0);
     }
 }
@@ -79,7 +77,7 @@ int set_non_blocking(int sfd)
 }
 
 void socket_init() {
-    if(((inet_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1)) {
+    if(((inet_fd = socket(AF_INET, SOCK_DGRAM, 0)) == -1)) {
         exit_program(EXIT_FAILURE,"Error creating INET socket");
     }
 
@@ -89,7 +87,7 @@ void socket_init() {
     addr_in.sin_port = htobe16(inet_port);
     error_check(bind(inet_fd, (const struct sockaddr *) &addr_in, sizeof(addr_in)),-1,"Error binding INET socket",1);
 
-    if((unix_fd = socket(AF_UNIX, SOCK_STREAM,0))== -1){
+    if((unix_fd = socket(AF_UNIX, SOCK_DGRAM,0))== -1){
         exit_program(EXIT_FAILURE,"Error creating UNIX socket");
     }
 
@@ -99,9 +97,6 @@ void socket_init() {
 
     error_check(bind(unix_fd, (const struct sockaddr *) &addr_un, sizeof(addr_un)),-1,"Error binding UNIX socket",1);
 
-    error_check(listen(inet_fd,SOMAXCONN),-1,"Error preparing to listen on INET socket",1);
-    error_check(listen(unix_fd,SOMAXCONN),-1,"Error preparing to listen on UNIX socket",1);
-
     set_non_blocking(inet_fd);
     set_non_blocking(unix_fd);
 }
@@ -110,85 +105,84 @@ void epoll_init() {
     efd = epoll_create1(0);
     error_check(efd,-1,"Error creating epoll",1);
     struct epoll_event ee;
-    ee.events = EPOLLIN | EPOLLRDHUP | EPOLLET;
+    ee.events = EPOLLIN | EPOLLET;
     ee.data.fd = unix_fd;
     error_check(epoll_ctl(efd,EPOLL_CTL_ADD,unix_fd,&ee),-1,"Error registering epoll to unix socket",1);
-    ee.events = EPOLLIN | EPOLLRDHUP | EPOLLET;
+    ee.events = EPOLLIN | EPOLLET;
     ee.data.fd = inet_fd;
     error_check(epoll_ctl(efd,EPOLL_CTL_ADD,inet_fd,&ee),-1,"Error registering epoll to inet socket",1);
 }
 
 
-void close_client(int fd) {
+void close_client(char *name) {
     pthread_mutex_lock(&mutex);
     for (int i=0, j=0;i<actual_clients;++i,++j) {
-        if (clients[i].fd == fd) {
-            error_check(close(fd),-1,"Error while closing client",0);
+        if (strcmp(clients[i].name, name)==0) {
+            printf("%s disconnected\n> ",clients[i].name);
+            fflush(stdout);
+            free(clients[i].addr);
             --j;
         } else {
             clients[j] = clients[i];
         }
     }
     --actual_clients;
-    printf("%d disconnected\n> ",fd);
-    fflush(stdout);
     pthread_mutex_unlock(&mutex);
 }
 
 int is_event_invalid(struct epoll_event event) {
-    int fd = event.data.fd;
+    //int fd = event.data.fd;
     if(event.events & EPOLLERR) {
         fprintf(stderr,"Event error\n");
         return -1;
     }
-    if(event.events & EPOLLRDHUP || event.events & EPOLLHUP) { // client disconnected
-        if(fd!=unix_fd && fd!=inet_fd)
-            close_client(fd);
-        return -1;
-    }
+//    if(event.events & EPOLLRDHUP || event.events & EPOLLHUP) { // client disconnected
+//        if(fd!=unix_fd && fd!=inet_fd)
+//            close_client(fd);
+//        return -1;
+//    }
+
     return 0;
 }
 
-int add_client(struct epoll_event event) {
-    struct sockaddr new_addr;
-    socklen_t new_addr_len = sizeof(new_addr);
-    int client_fd = accept(event.data.fd, &new_addr, &new_addr_len);
-
-    if(client_fd == -1) {
-        if(errno !=EAGAIN && errno != EWOULDBLOCK) {
-            error_check(client_fd,-1,"Error accepting new connection",0);
+client_t *find_client(char* name){
+    for(int i=0; i<actual_clients; i++){
+        if(strcmp(clients[i].name, name) == 0){
+            return &clients[i];
         }
-        return -1;
     }
+    return NULL;
+}
 
-    if(set_non_blocking(client_fd) == -1) {
-        return -1;
-    }
+int add_client(struct sockaddr *addr, socklen_t addr_size, msg_t msg) {
+    if(actual_clients == MAX_CLIENTS) return -1;
+    if(find_client(msg.msg.name) != NULL) return -1;
 
-    struct epoll_event client_event;
-    client_event.data.fd = client_fd;
-    client_event.events = EPOLLIN | EPOLLET;
-    if(epoll_ctl(efd,EPOLL_CTL_ADD,client_fd,&client_event) == -1) {
-        perror("Error while adding new socket to epoll");
-        return -1;
-    }
     pthread_mutex_lock(&mutex);
-    clients[actual_clients++].fd = client_fd;
+    clients[actual_clients].addr = addr;
+    strcpy(clients[actual_clients].name, msg.msg.name);
+    clients[actual_clients].pings = 0;
+    clients[actual_clients].pongs = 0;
+    clients[actual_clients].s_type = msg.s_type;
+    clients[actual_clients++].addr_size = addr_size;
     pthread_mutex_unlock(&mutex);
 
     return 0;
 }
 
 int read_message(struct epoll_event event) {
+    struct sockaddr *addr = malloc(sizeof(struct sockaddr));
+    socklen_t addr_size =  sizeof(struct sockaddr);
     msg_t msg;
-    ssize_t bytes_read = read(event.data.fd,&msg,sizeof(msg));
+    ssize_t bytes_read = recvfrom(event.data.fd,&msg,sizeof(msg),0,addr,&addr_size);
     if(bytes_read == -1) {
         if(errno !=EAGAIN && errno != EWOULDBLOCK) {
             perror("Error receiving message from client");
         }
         return -1;
-    } else if(bytes_read == 0) { // End of file - client closed connection
-        close_client(event.data.fd);
+    } else if(bytes_read == 0) {
+        printf("Read 0 bytes\n> ");
+        fflush(stdout);
         return -1;
     }
     else {
@@ -199,7 +193,7 @@ int read_message(struct epoll_event event) {
             case PONG:
                 pthread_mutex_lock(&mutex);
                     for(int i=0; i<actual_clients; i++){
-                    if(clients[i].fd == event.data.fd) {
+                    if(strcmp(clients[i].name,msg.msg.name)==0) {
                         clients[i].pongs++;
                     }
                 }
@@ -207,9 +201,12 @@ int read_message(struct epoll_event event) {
                 break;
             case LOGIN:
                 printf("%d connected. Username: %s\n> ",event.data.fd,msg.msg.name);
+                if(add_client(addr, addr_size, msg) == -1) {
+                    free(addr);
+                }
                 break;
             case LOGOUT:
-                close_client(event.data.fd);
+                close_client(msg.msg.name);
                 break;
             default:
                 break;
@@ -232,19 +229,9 @@ void *sockets_handler(void *args) {
 
             if(is_event_invalid(event)) continue;
 
-            if(event.data.fd == inet_fd || event.data.fd == unix_fd) {// if the data came from inet or unix socket, we've got new connection
-                while(1) {
-                    if(actual_clients == MAX_CLIENTS) {
-                        fprintf(stderr,"Maximum number of clients reached");
-                        break;
-                    }
-                    if(add_client(event) == -1) break;
-                }
-            } else { // if the data came from some other socket it must've been some connected user's socket
-                while(1) {
-                    if(read_message(event) == -1) break;
-                }
-            }
+            while(1)
+                 if(read_message(event) == -1) break;
+
         }
     }
 
@@ -259,25 +246,25 @@ void *ping_handler(void *args) {
             msg_t msg;
             msg.type = PING;
 
-            error_check((int) write(clients[i].fd, &msg, sizeof(msg)), -1, "Error sending PING to client", 0);
+            error_check((int) sendto(clients[i].s_type == AF_UNIX ? unix_fd : inet_fd, &msg, sizeof(msg), 0, clients[i].addr, clients[i].addr_size), -1, "Error sending PING to client", 0);
             ++(clients[i].pings);
             pthread_mutex_unlock(&mutex);
             sleep(1);
             pthread_mutex_lock(&mutex);
 
             if (clients[i].pings != clients[i].pongs) {
-                printf("%d has not responded to PING. Disconnecting...\n> ", clients[i].fd);
+                printf("%s has not responded to PING. Disconnecting...\n> ", clients[i].name);
                 fflush(stdout);
                 for (int k=0, j=0;i<actual_clients;++i,++j) {
-                    if (clients[k].fd == clients[i].fd) {
-                        error_check(close(clients[i].fd),-1,"Error while closing client",0);
+                    if (strcmp(clients[k].name, clients[i].name)==0) {
+                        free(clients[i].addr);
                         --j;
                     } else {
-                        clients[j].fd = clients[k].fd;
+                        clients[j] = clients[k];
                     }
                 }
                 --actual_clients;
-                printf("%d disconnected\n> ",clients[i].fd);
+                printf("%s disconnected\n> ",clients[i].name);
                 fflush(stdout);
             }
         }
@@ -287,16 +274,15 @@ void *ping_handler(void *args) {
     return NULL;
 }
 
-int random_client() {
+int random_client_id() {
     pthread_mutex_lock(&mutex);
     if (actual_clients == 0) return -1;
-    int fd = clients[rand() % actual_clients].fd;
-    return fd;
+    return rand() % actual_clients;
 }
 
 int send_task(task_t task) {
-    int fd = random_client();
-    if (fd == -1) {
+    int client_id = random_client_id();
+    if (client_id == -1) {
         printf("No clients to send task to\n");
         pthread_mutex_unlock(&mutex);
         return -1;
@@ -306,7 +292,9 @@ int send_task(task_t task) {
     msg_t msg;
     msg.type = TASK;
     msg.msg.task = task;
-    error_check((int) send(fd, &msg, sizeof(msg), 0), -1, "Error sending task to client", 0);
+
+    client_t client = clients[client_id];
+    error_check((int) sendto(client.s_type == AF_UNIX ? unix_fd : inet_fd, &msg, sizeof(msg), 0, client.addr, client.addr_size), -1, "Error sending task to client", 0);
     return 0;
 }
 
@@ -353,7 +341,7 @@ int main(int argc, char **argv) {
     while(1) {
         printf("> ");
 
-        int res = scanf("%d %c %d%*c", &a, &symbol, &b);
+        int res = scanf("%d %c %d", &a, &symbol, &b);
 
         if (res == EOF) {
             perror("Error reading from stdin");
