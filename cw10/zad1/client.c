@@ -88,7 +88,7 @@ void init_unix() {
 void login() {
     msg_t msg;
     msg.type = LOGIN;
-    strcpy(msg.msg.name,username);
+    strcpy(msg.name,username);
     error_check((int) write(socket_fd, &msg, sizeof(msg)), -1, "Error sending username to socket", 1);
 }
 
@@ -115,6 +115,7 @@ void send_result(task_t task) {
     }
 
     msg.msg.result = result;
+    strcpy(msg.name,username);
 
     error_check((int) write(socket_fd,&msg,sizeof(msg)),-1,"Error sending back result so socket",1);
     printf("Sent!\n");
@@ -123,7 +124,7 @@ void send_result(task_t task) {
 void pong() {
     msg_t msg;
     msg.type = PONG;
-    error_check(write(socket_fd,&msg,sizeof(msg)),-1,"Error sending PONG to server",0);
+    error_check((int) write(socket_fd, &msg, sizeof(msg)), -1, "Error sending PONG to server", 0);
 }
 
 int main(int argc, char **argv) {
@@ -190,8 +191,6 @@ int main(int argc, char **argv) {
                 pong();
                 fflush(stdout);
                 break;
-            case LOGOUT:
-                return 0;
             default:
                 printf("Unsupported message type\n");
                 break;

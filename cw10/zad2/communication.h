@@ -29,7 +29,7 @@ typedef enum operation {
 } operation_t;
 
 typedef enum msg_type {
-    TASK, RESULT, PING, PONG, LOGIN, LOGOUT
+    TASK, RESULT, PING, PONG, LOGIN
 } msg_type_t;
 
 typedef struct task {
@@ -58,8 +58,8 @@ typedef struct msg {
     union {
         task_t task;
         result_t result;
-        char name[MAX_NAME_LEN];
     } msg;
+    char name[MAX_NAME_LEN];
     int s_type;
 } msg_t;
 

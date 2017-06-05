@@ -194,7 +194,7 @@ int read_message(struct epoll_event event) {
     else {
         switch(msg.type) {
             case RESULT:
-                printf("task(%d) - result: %d\n> ",msg.msg.result.id, msg.msg.result.result);
+                printf("task(%d) - result: %d. Sent from %s\n> ",msg.msg.result.id, msg.msg.result.result, msg.name);
                 break;
             case PONG:
                 pthread_mutex_lock(&mutex);
@@ -208,19 +208,16 @@ int read_message(struct epoll_event event) {
             case LOGIN:
                 pthread_mutex_lock(&mutex);
                 for(int i =0; i<actual_clients-1; ++i) {
-                    if(strcmp(clients[i].name,msg.msg.name)==0) {
-                        printf("User with the same username: %s, tried to login\n> ",msg.msg.name);
+                    if(strcmp(clients[i].name,msg.name)==0) {
+                        printf("User with the same username: %s, tried to login\n> ",msg.name);
                         pthread_mutex_unlock(&mutex);
                         close_client(event.data.fd);
                         return -1;
                     }
                 }
-                strcpy(clients[actual_clients-1].name,msg.msg.name);
+                strcpy(clients[actual_clients-1].name,msg.name);
                 pthread_mutex_unlock(&mutex);
-                printf("%d connected. Username: %s\n> ",event.data.fd,msg.msg.name);
-                break;
-            case LOGOUT:
-                close_client(event.data.fd);
+                printf("%d connected. Username: %s\n> ",event.data.fd,msg.name);
                 break;
             default:
                 break;

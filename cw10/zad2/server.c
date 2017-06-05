@@ -149,11 +149,11 @@ client_t *find_client(char* name){
 
 int add_client(struct sockaddr *addr, socklen_t addr_size, msg_t msg) {
     if(actual_clients == MAX_CLIENTS) return -1;
-    if(find_client(msg.msg.name) != NULL) return -1;
+    if(find_client(msg.name) != NULL) return -1;
 
     pthread_mutex_lock(&mutex);
     clients[actual_clients].addr = addr;
-    strcpy(clients[actual_clients].name, msg.msg.name);
+    strcpy(clients[actual_clients].name, msg.name);
     clients[actual_clients].pings = 0;
     clients[actual_clients].pongs = 0;
     clients[actual_clients].s_type = msg.s_type;
@@ -181,12 +181,12 @@ int read_message(struct epoll_event event) {
     else {
         switch(msg.type) {
             case RESULT:
-                printf("task(%d) - result: %d\n> ",msg.msg.result.id, msg.msg.result.result);
+                printf("task(%d) - result: %d. From: %s\n> ",msg.msg.result.id, msg.msg.result.result,msg.name);
                 break;
             case PONG:
                 pthread_mutex_lock(&mutex);
                     for(int i=0; i<actual_clients; i++){
-                    if(strcmp(clients[i].name,msg.msg.name)==0) {
+                    if(strcmp(clients[i].name,msg.name)==0) {
                         clients[i].pongs++;
                     }
                 }
@@ -196,11 +196,8 @@ int read_message(struct epoll_event event) {
                 if(add_client(addr, addr_size, msg) == -1) {
                     free(addr);
                 } else {
-                    printf("%d connected. Username: %s\n> ", event.data.fd, msg.msg.name);
+                    printf("%d connected. Username: %s\n> ", event.data.fd, msg.name);
                 }
-                break;
-            case LOGOUT:
-                close_client(msg.msg.name);
                 break;
             default:
                 break;
