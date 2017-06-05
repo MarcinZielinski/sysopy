@@ -88,7 +88,7 @@ void socket_init() {
     addr_in.sin_family = AF_INET;
     addr_in.sin_port = htobe16(inet_port);
     error_check(bind(inet_fd, (const struct sockaddr *) &addr_in, sizeof(addr_in)),-1,"Error binding INET socket",1);
-
+    
     if((unix_fd = socket(AF_UNIX, SOCK_STREAM,0))== -1){
         exit_program(EXIT_FAILURE,"Error creating UNIX socket");
     }

@@ -59,11 +59,12 @@ void init_inet() {
 
     struct sockaddr_in in_addr;
     in_addr.sin_family = AF_INET;
-    in_addr.sin_port = htobe16(atoi(port_str));
-    error_check(inet_aton(addr,&in_addr.sin_addr),0,"Error converting address IP",1);
+    in_addr.sin_port = htons((uint16_t) atoi(port_str));
+    int bin_addr = inet_addr(addr);
+    in_addr.sin_addr.s_addr = htonl((uint32_t) bin_addr);
 
 
-    error_check(connect(socket_fd, (const struct sockaddr *) &in_addr, sizeof(addr)), -1, "Error connecting to INET socket", 1);
+    error_check(connect(socket_fd, (const struct sockaddr *) &in_addr, sizeof(in_addr)), -1, "Error connecting to INET socket", 1);
 }
 
 void init_unix() {
