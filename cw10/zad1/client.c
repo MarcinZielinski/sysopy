@@ -120,6 +120,12 @@ void send_result(task_t task) {
     printf("Sent!\n");
 }
 
+void pong() {
+    msg_t msg;
+    msg.type = PONG;
+    error_check(write(socket_fd,&msg,sizeof(msg)),-1,"Error sending PONG to server",0);
+}
+
 int main(int argc, char **argv) {
     if(argc != 4 && argc != 5) {
         exit_program(EXIT_SUCCESS,"Pass the proper number of arguments: username - your unique nickname, "
@@ -168,6 +174,10 @@ int main(int argc, char **argv) {
             }
             continue;
         }
+        if(bytes_read == 0) {
+            printf("Disconnected from server\n");
+            exit(EXIT_FAILURE);
+        }
 
         switch (msg.type) {
             case TASK:
@@ -177,6 +187,7 @@ int main(int argc, char **argv) {
                 break;
             case PING:
                 printf("Pinged!\n");
+                pong();
                 fflush(stdout);
                 break;
             case LOGOUT:

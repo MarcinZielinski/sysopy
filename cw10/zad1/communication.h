@@ -44,6 +44,12 @@ typedef struct result {
     int result;
 } result_t;
 
+typedef struct client {
+    int fd;
+    int pings;
+    int pongs;
+} client_t;
+
 typedef struct msg {
     msg_type_t type;
     union {

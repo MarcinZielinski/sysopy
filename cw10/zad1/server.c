@@ -10,7 +10,7 @@ pthread_attr_t attr;
 pthread_t netthread_tid;
 pthread_t pingthread_tid;
 struct epoll_event events[MAX_EVENTS];
-int clients[MAX_CLIENTS];
+client_t clients[MAX_CLIENTS];
 int actual_clients;
 
 void exit_program(int status, char *msg) {
@@ -122,11 +122,11 @@ void epoll_init() {
 void close_client(int fd) {
     pthread_mutex_lock(&mutex);
     for (int i=0, j=0;i<actual_clients;++i,++j) {
-        if (clients[i] == fd) {
+        if (clients[i].fd == fd) {
             error_check(close(fd),-1,"Error while closing client",0);
             --j;
         } else {
-            clients[j] = clients[i];
+            clients[j].fd = clients[i].fd;
         }
     }
     --actual_clients;
@@ -173,7 +173,7 @@ int add_client(struct epoll_event event) {
         return -1;
     }
     pthread_mutex_lock(&mutex);
-    clients[actual_clients++] = client_fd;
+    clients[actual_clients++].fd = client_fd;
     pthread_mutex_unlock(&mutex);
 
     return 0;
@@ -195,6 +195,15 @@ int read_message(struct epoll_event event) {
         switch(msg.type) {
             case RESULT:
                 printf("task(%d) - result: %d\n> ",msg.msg.result.id, msg.msg.result.result);
+                break;
+            case PONG:
+                pthread_mutex_lock(&mutex);
+                    for(int i=0; i<actual_clients; i++){
+                    if(clients[i].fd == event.data.fd) {
+                        clients[i].pongs++;
+                    }
+                }
+                pthread_mutex_unlock(&mutex);
                 break;
             case LOGIN:
                 printf("%d connected. Username: %s\n> ",event.data.fd,msg.msg.name);
@@ -243,20 +252,52 @@ void *sockets_handler(void *args) {
 }
 
 void *ping_handler(void *args) {
+    while(unix_fd == -1 && inet_fd == -1);
+    while(1){
+        pthread_mutex_lock(&mutex);
+        for(int i=0; i<actual_clients; i++) {
+            msg_t msg;
+            msg.type = PING;
+
+            error_check((int) write(clients[i].fd, &msg, sizeof(msg)), -1, "Error sending PING to client", 0);
+            ++(clients[i].pings);
+            pthread_mutex_unlock(&mutex);
+            sleep(1);
+            pthread_mutex_lock(&mutex);
+
+            if (clients[i].pings != clients[i].pongs) {
+                printf("%d has not responded to PING. Disconnecting...\n> ", clients[i].fd);
+                fflush(stdout);
+                for (int k=0, j=0;i<actual_clients;++i,++j) {
+                    if (clients[k].fd == clients[i].fd) {
+                        error_check(close(clients[i].fd),-1,"Error while closing client",0);
+                        --j;
+                    } else {
+                        clients[j].fd = clients[k].fd;
+                    }
+                }
+                --actual_clients;
+                printf("%d disconnected\n> ",clients[i].fd);
+                fflush(stdout);
+            }
+        }
+        pthread_mutex_unlock(&mutex);
+        sleep(2);
+    }
     return NULL;
 }
 
 int random_client() {
     pthread_mutex_lock(&mutex);
     if (actual_clients == 0) return -1;
-    int fd = clients[rand() % actual_clients];
+    int fd = clients[rand() % actual_clients].fd;
     return fd;
 }
 
 int send_task(task_t task) {
     int fd = random_client();
     if (fd == -1) {
-        printf("No clients to send task too\n");
+        printf("No clients to send task to\n");
         pthread_mutex_unlock(&mutex);
         return -1;
     }
