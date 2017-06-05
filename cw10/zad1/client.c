@@ -38,15 +38,9 @@ void exit_handler() {
     }
 }
 
-
-void logout() {
-    exit(EXIT_SUCCESS);
-}
-
 void sigint_handler(int signum) {
     char* msg = "Sigint received\n";
     write(STDOUT_FILENO,msg,17);
-    logout();
     exit(EXIT_SUCCESS);
 }
 
